@@ -6,7 +6,7 @@ works on other Classic flavors via fallbacks.
 
 ## Install
 
-**Easiest:** [**Download GankList.zip**](https://raw.githubusercontent.com/tuomopera/wow-addons/main/GankList.zip)
+**Easiest:** [**Download GankList.zip**](https://github.com/tuomopera/wow-addons/releases/latest/download/GankList.zip)
 and extract the `GankList` folder into your AddOns directory, so the path is:
 
 ```

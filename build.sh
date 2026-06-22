@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Rebuild GankList.zip (the one-click download) from the GankList/ folder.
-# Run this after changing the addon, then commit the updated zip.
+# Build GankList.zip from the GankList/ folder, ready to attach to a GitHub release.
+# After changing the addon: bump ## Version in the toc, run this, then upload the
+# zip to a new release (the README's download link always points at the latest one).
 set -e
 cd "$(dirname "$0")"
 rm -f GankList.zip
