@@ -1,0 +1,7 @@
+## Interface: 20505
+## Title: GankList
+## Notes: Remember who ganked you. Syncs with 1-2 trusted partners.
+## Author: you
+## SavedVariables: GankListDB
+
+GankList.lua
