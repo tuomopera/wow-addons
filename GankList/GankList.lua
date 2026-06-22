@@ -54,17 +54,29 @@ local function fmtTime(t)
 end
 
 -- ---- sync ----------------------------------------------------------------
+-- All outgoing whispers go through a throttled queue (~5/sec) so a big list can
+-- never burst-spam and get you (or the friend answering a handshake) disconnected.
+local outq, outTicker = {}, nil
+local function tx(payload, to)
+	outq[#outq + 1] = { payload, to }
+	if not outTicker then
+		outTicker = C_Timer.NewTicker(0.2, function()
+			local m = table.remove(outq, 1)
+			if m then C_ChatInfo.SendAddonMessage(PREFIX, m[1], "WHISPER", m[2]) end
+			if #outq == 0 and outTicker then outTicker:Cancel(); outTicker = nil end
+		end)
+	end
+end
+
 -- send(name[, only]) - push one ganker to all friends, or just `only` if given.
 local function send(name, only)
 	local g = ensureDB().gankers[name]
 	if not g then return end
 	local payload = table.concat({ "G", name, g.count, g.zone or "", g.by or me, g.last or time() }, "\t")
 	if only then
-		C_ChatInfo.SendAddonMessage(PREFIX, payload, "WHISPER", only)
+		tx(payload, only)
 	else
-		for _, partner in ipairs(ensureDB().partners) do
-			C_ChatInfo.SendAddonMessage(PREFIX, payload, "WHISPER", partner)
-		end
+		for _, partner in ipairs(ensureDB().partners) do tx(payload, partner) end
 	end
 end
 
@@ -78,7 +90,7 @@ end
 local helloReply = {} -- friend -> last time we answered their HI (throttle)
 local function greetFriends()
 	for _, p in ipairs(ensureDB().partners) do
-		C_ChatInfo.SendAddonMessage(PREFIX, "HI", "WHISPER", p)
+		tx("HI", p)
 	end
 	sendAll() -- also push our list outright (covers friends already online)
 end
@@ -86,9 +98,7 @@ end
 -- Broadcast a forgive (removal) request to partners.
 local function sendRemove(name)
 	local payload = "R\t" .. name
-	for _, partner in ipairs(ensureDB().partners) do
-		C_ChatInfo.SendAddonMessage(PREFIX, payload, "WHISPER", partner)
-	end
+	for _, partner in ipairs(ensureDB().partners) do tx(payload, partner) end
 end
 
 local function onReceive(payload, sender)
@@ -102,7 +112,7 @@ local function onReceive(payload, sender)
 		return
 	elseif kind == "PING" then -- connectivity test: reply so the sender knows it round-tripped
 		print("|cff40ff40GankList:|r ping from " .. (sender or "?") .. " - you two are synced \226\156\147")
-		for _, p in ipairs(ensureDB().partners) do C_ChatInfo.SendAddonMessage(PREFIX, "PONG", "WHISPER", p) end
+		for _, p in ipairs(ensureDB().partners) do tx("PONG", p) end
 		return
 	elseif kind == "PONG" then
 		print("|cff40ff40GankList:|r " .. (sender or "a friend") .. " got your ping - sync works \226\156\147")
@@ -582,7 +592,7 @@ SlashCmdList.GANK = function(msg)
 
 	elseif cmd == "ping" then
 		if #db.partners == 0 then print("|cffff4040GankList:|r no friends yet - /gank friend add <name>") return end
-		for _, p in ipairs(db.partners) do C_ChatInfo.SendAddonMessage(PREFIX, "PING", "WHISPER", p) end
+		for _, p in ipairs(db.partners) do tx("PING", p) end
 		print("|cffff8040GankList:|r pinged " .. table.concat(db.partners, ", ") .. " - waiting for reply...")
 
 	elseif cmd == "sync" then
@@ -612,7 +622,8 @@ SlashCmdList.GANK = function(msg)
 		table.sort(rows, function(a, b) return a.g.count > b.g.count end)
 		local chan = IsInRaid() and "RAID" or "PARTY"
 		SendChatMessage("Gank list:" .. (#rows == 0 and " (clean record)" or ""), chan)
-		for _, r in ipairs(rows) do
+		for i, r in ipairs(rows) do
+			if i > 10 then SendChatMessage(("...and %d more"):format(#rows - 10), chan) break end -- cap: avoid chat-spam disconnect
 			SendChatMessage(("%s x%d (%s)"):format(r.name, r.g.count, r.g.zone or "?"), chan)
 		end
 
