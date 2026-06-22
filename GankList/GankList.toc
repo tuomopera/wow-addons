@@ -1,7 +1,8 @@
 ## Interface: 20505
 ## Title: GankList
-## Notes: Remember who ganked you. Syncs with 1-2 trusted partners.
+## Notes: Remember who ganked you. Syncs with 1-2 trusted friends.
 ## Author: you
+## Version: 1.0.0
 ## SavedVariables: GankListDB
 
 GankList.lua
