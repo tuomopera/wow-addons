@@ -64,9 +64,14 @@ Add each other as friends on both PCs:
 /gank friend FriendName
 ```
 
-New gankers then sync automatically (and on login). Sync uses addon whispers, so
-it only works while you're **same faction** and able to whisper each other. Only
-names in your friend list are accepted - strangers can't inject entries.
+New gankers sync automatically the moment you add them. If a friend was **offline**
+when you added someone, they catch up silently the next time either of you logs in
+(a quiet handshake swaps both lists - no chat spam, no buttons). `/gank sync` is
+just a manual "push everything now" if you ever want it.
+
+Sync uses addon whispers, so it only works while you're **same faction** and able
+to whisper each other. Only names in your friend list are accepted - strangers
+can't inject entries.
 
 (On a single-realm server like Anniversary's Spineshatter, just the character name
 is enough - no realm suffix needed. The addon still accepts a `Name-Realm` form if

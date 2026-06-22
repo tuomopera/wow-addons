@@ -54,17 +54,33 @@ local function fmtTime(t)
 end
 
 -- ---- sync ----------------------------------------------------------------
-local function send(name)
+-- send(name[, only]) - push one ganker to all friends, or just `only` if given.
+local function send(name, only)
 	local g = ensureDB().gankers[name]
 	if not g then return end
 	local payload = table.concat({ "G", name, g.count, g.zone or "", g.by or me, g.last or time() }, "\t")
-	for _, partner in ipairs(ensureDB().partners) do
-		C_ChatInfo.SendAddonMessage(PREFIX, payload, "WHISPER", partner)
+	if only then
+		C_ChatInfo.SendAddonMessage(PREFIX, payload, "WHISPER", only)
+	else
+		for _, partner in ipairs(ensureDB().partners) do
+			C_ChatInfo.SendAddonMessage(PREFIX, payload, "WHISPER", partner)
+		end
 	end
 end
 
-local function sendAll()
-	for name in pairs(ensureDB().gankers) do send(name) end
+local function sendAll(only)
+	for name in pairs(ensureDB().gankers) do send(name, only) end
+end
+
+-- Silent catch-up handshake: on login we greet each friend with "HI"; whoever is
+-- already online answers by pushing their whole list back. This closes the gap
+-- where you add a ganker while a friend is offline - they get it when they log in.
+local helloReply = {} -- friend -> last time we answered their HI (throttle)
+local function greetFriends()
+	for _, p in ipairs(ensureDB().partners) do
+		C_ChatInfo.SendAddonMessage(PREFIX, "HI", "WHISPER", p)
+	end
+	sendAll() -- also push our list outright (covers friends already online)
 end
 
 -- Broadcast a forgive (removal) request to partners.
@@ -78,7 +94,13 @@ end
 local function onReceive(payload, sender)
 	local kind, name, count, zone, by, last = strsplit("\t", payload)
 
-	if kind == "PING" then -- connectivity test: reply so the sender knows it round-tripped
+	if kind == "HI" then -- a friend just logged in: silently push our list back to them
+		if sender and (not helloReply[sender] or time() - helloReply[sender] > 30) then
+			helloReply[sender] = time()
+			sendAll(sender)
+		end
+		return
+	elseif kind == "PING" then -- connectivity test: reply so the sender knows it round-tripped
 		print("|cff40ff40GankList:|r ping from " .. (sender or "?") .. " - you two are synced \226\156\147")
 		for _, p in ipairs(ensureDB().partners) do C_ChatInfo.SendAddonMessage(PREFIX, "PONG", "WHISPER", p) end
 		return
@@ -261,7 +283,7 @@ f:SetScript("OnEvent", function(_, event, ...)
 		ensureDB()
 		playerGUID = UnitGUID("player")
 		C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
-		C_Timer.After(8, sendAll) -- push our list to partners once chat is connected
+		C_Timer.After(8, greetFriends) -- greet friends + push our list once chat is connected
 	end
 end)
 
