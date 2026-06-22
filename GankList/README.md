@@ -43,11 +43,17 @@ you**. You can only ever remove (forgive) someone afterward.
 | `/gank check` | reload-safe diagnostic |
 | `/gank help` | show all commands |
 
-**Two-strike auto-tracking:** not every PvP death is a gank. The first player to
-kill you is remembered as a *suspect* — kill you a second time and they're
-promoted to the gank list automatically. `/gank pending` shows current suspects;
-suspects are forgotten after 3 days. You also get a brief on-screen alert when a
-listed ganker comes into range (nameplate / target / mouseover).
+**What counts as a gank** (auto-added) vs. a fair death:
+
+- **Outmatched** — the killer is 3+ levels above you (or shows as a skull `??`).
+  You couldn't fight back, so a single kill is enough.
+- **Camped** — the same player kills you *again within an hour* (e.g. catching you
+  each time you respawn). Repeat targeting, not bad luck.
+
+A lone kill by someone near your level is ambiguous, so it's only a **suspect**
+(`/gank pending`) and is forgotten after an hour unless they come back. You also
+get a brief on-screen alert when a listed ganker comes into range (nameplate /
+target / mouseover).
 
 ## Syncing
 

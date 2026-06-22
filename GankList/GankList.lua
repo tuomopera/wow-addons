@@ -103,6 +103,16 @@ local function onReceive(payload, sender)
 	if refreshUI then refreshUI() end
 end
 
+-- Cache the level of any hostile player we see, so we can judge a kill as a gank
+-- (UnitLevel isn't in the combat log, so we grab it from units we can inspect).
+local levelSeen = {} -- name -> level (-1 = skull/"??", far above you)
+local function noteUnit(unit)
+	if UnitExists(unit) and UnitIsPlayer(unit) and UnitCanAttack("player", unit) then
+		local n = UnitName(unit)
+		if n then levelSeen[n] = UnitLevel(unit) end
+	end
+end
+
 -- Alert when a listed ganker comes into range (nameplate/target/mouseover).
 local alertSeen = {} -- name -> last alert time, throttled to 1/60s
 local function alertIfGanker(unit)
@@ -122,28 +132,38 @@ local function alertIfGanker(unit)
 	UIErrorsFrame:AddMessage("Ganker nearby: " .. name .. " (x" .. g.count .. ")", 1, 0.2, 0.2, 1, 5)
 end
 
--- Two-strike kill handling: not every PvP death is a gank. A first kill marks the
--- player as a "suspect" (pending); a repeat kill promotes them to the gank list.
-local PENDING_TTL = 3 * 86400 -- forget a one-off killer after 3 days
+-- What counts as a gank (auto-add) vs. a fair death (suspect only):
+--   * killer is much higher level than you (you couldn't fight back), OR
+--   * the same player kills you again within REPEAT_WINDOW (camping your respawns).
+-- A lone kill by someone near your level is a "suspect" until they repeat.
+local REPEAT_WINDOW = 3600       -- ponytail: 1h camping window; raise for slower harassment
+local GANK_LEVEL_GAP = 3         -- killer this many levels above you = outmatched
 local function handleKill(name)
 	name = cleanName(name)
 	if not name then return end
 	local db = ensureDB()
-	for n, t in pairs(db.pending) do -- prune stale suspects
-		if (tonumber(t) or 0) < time() - PENDING_TTL then db.pending[n] = nil end
+	for n, t in pairs(db.pending) do -- forget suspects older than the window
+		if (tonumber(t) or 0) < time() - REPEAT_WINDOW then db.pending[n] = nil end
 	end
+
+	local lvl = levelSeen[name]
+	local myLvl = UnitLevel("player")
+	local outmatched = lvl and (lvl == -1 or (lvl > 0 and lvl - myLvl >= GANK_LEVEL_GAP))
+	local repeated = db.pending[name] ~= nil
+
 	if db.gankers[name] then -- already a known ganker: just tally
 		record(name, GetRealZoneText(), me)
 		send(name)
 		print("|cffff4040GankList:|r " .. name .. " ganked you again (x" .. db.gankers[name].count .. ")")
-	elseif db.pending[name] then -- second strike: promote to the list
+	elseif outmatched or repeated then -- it's a gank: add to the list
 		db.pending[name] = nil
 		record(name, GetRealZoneText(), me)
 		send(name)
-		print("|cffff4040GankList:|r " .. name .. " killed you again — added to the gank list. /gank forgive " .. name .. " to undo")
-	else -- first strike: remember as a suspect only
+		local why = repeated and "killed you again — camping your respawns" or "ganked you (way above your level)"
+		print("|cffff4040GankList:|r " .. name .. " " .. why .. ". Added. /gank forgive " .. name .. " to undo")
+	else -- ambiguous lone kill near your level: just a suspect for now
 		db.pending[name] = time()
-		print("|cffff8040GankList:|r " .. name .. " killed you. They'll be added if it happens again.")
+		print("|cffff8040GankList:|r " .. name .. " killed you. Added if they do it again within the hour.")
 	end
 	if refreshUI then refreshUI() end
 end
@@ -176,13 +196,13 @@ f:SetScript("OnEvent", function(_, event, ...)
 		end
 
 	elseif event == "NAME_PLATE_UNIT_ADDED" then
-		alertIfGanker(...) -- unitToken of the new nameplate
+		noteUnit(...); alertIfGanker(...) -- unitToken of the new nameplate
 
 	elseif event == "UPDATE_MOUSEOVER_UNIT" then
-		alertIfGanker("mouseover")
+		noteUnit("mouseover"); alertIfGanker("mouseover")
 
 	elseif event == "PLAYER_TARGET_CHANGED" then
-		alertIfGanker("target")
+		noteUnit("target"); alertIfGanker("target")
 
 	elseif event == "CHAT_MSG_ADDON" then
 		local prefix, msg, _, sender = ...
