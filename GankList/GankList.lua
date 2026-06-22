@@ -474,7 +474,7 @@ SlashCmdList.GANK = function(msg)
 		print("|cffff4040GankList|r |cff808080(gankers are added automatically when they kill you)|r")
 		line("/gank", "open the window")
 		line("/gank add Name", "manually add a ganker")
-		line("/gank forgive Name", "remove a ganker")
+		line("/gank del Name", "remove a ganker")
 		line("/gank friend Name", "sync with a friend  (no name = list, 'reset' = clear)")
 		line("/gank unfriend Name", "stop syncing with a friend")
 		line("/gank ping", "test the sync link")
@@ -541,13 +541,13 @@ SlashCmdList.GANK = function(msg)
 		if refreshUI then refreshUI() end
 		print("|cffff4040GankList:|r added " .. name)
 
-	elseif cmd == "remove" or cmd == "forgive" then
+	elseif cmd == "del" or cmd == "remove" or cmd == "forgive" then -- forgive/remove kept as silent aliases
 		local name = arg ~= "" and arg or (UnitExists("target") and UnitIsPlayer("target") and UnitName("target"))
-		if not name then print("|cffff4040GankList:|r /gank forgive <name>  (or target them first)") return end
+		if not name then print("|cffff4040GankList:|r /gank del <name>  (or target them first)") return end
 		db.gankers[name] = nil
 		sendRemove(name) -- ask partners to forgive too
 		if refreshUI then refreshUI() end
-		print("|cffff4040GankList:|r forgave " .. name)
+		print("|cffff4040GankList:|r removed " .. name)
 
 	elseif cmd == "party" then
 		local rows = {}

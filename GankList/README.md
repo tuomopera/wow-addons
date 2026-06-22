@@ -32,7 +32,7 @@ also add or remove someone by hand.
 |---|---|
 | `/gank` | open the window (Wanted + Suspects tabs) |
 | `/gank add Name` | manually add a ganker (or target them and omit the name) |
-| `/gank forgive Name` | remove a ganker (or target them and omit the name) |
+| `/gank del Name` | remove a ganker (or target them and omit the name) |
 | `/gank friend Name` | sync with a friend (no name = list them, `reset` = clear all) |
 | `/gank unfriend Name` | stop syncing with a friend |
 | `/gank ping` | test the sync link with your friends |
