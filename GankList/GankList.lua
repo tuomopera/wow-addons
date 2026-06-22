@@ -70,6 +70,16 @@ end
 
 local function onReceive(payload, sender)
 	local kind, name, count, zone, by, last = strsplit("\t", payload)
+
+	if kind == "PING" then -- connectivity test: reply so the sender knows it round-tripped
+		print("|cff40ff40GankList:|r ping from " .. (sender or "?") .. " — you two are synced \226\156\147")
+		for _, p in ipairs(ensureDB().partners) do C_ChatInfo.SendAddonMessage(PREFIX, "PONG", "WHISPER", p) end
+		return
+	elseif kind == "PONG" then
+		print("|cff40ff40GankList:|r " .. (sender or "a partner") .. " got your ping — sync works \226\156\147")
+		return
+	end
+
 	name = cleanName(name) -- reject junk / strip injection from untrusted partner data
 	if not name then return end
 
@@ -399,6 +409,7 @@ SlashCmdList.GANK = function(msg)
 		line("/gank party", "announce the list to party/raid")
 		line("/gank partner add Name", "sync with a friend")
 		line("/gank partner", "show your sync partners")
+		line("/gank ping", "test the sync link with your partners")
 		line("/gank sync", "push your list to partners now")
 		line("/gank autoaccept on|off", "auto-accept partners' forgives")
 		line("/gank check", "reload-safe diagnostic")
@@ -442,6 +453,11 @@ SlashCmdList.GANK = function(msg)
 		else db.autoAccept = not db.autoAccept end
 		if refreshUI then refreshUI() end
 		print("|cffff4040GankList:|r auto-accept forgive requests " .. (db.autoAccept and "ON" or "OFF"))
+
+	elseif cmd == "ping" then
+		if #db.partners == 0 then print("|cffff4040GankList:|r no partners yet — /gank partner add <name>") return end
+		for _, p in ipairs(db.partners) do C_ChatInfo.SendAddonMessage(PREFIX, "PING", "WHISPER", p) end
+		print("|cffff8040GankList:|r pinged " .. table.concat(db.partners, ", ") .. " — waiting for reply...")
 
 	elseif cmd == "sync" then
 		sendAll()
