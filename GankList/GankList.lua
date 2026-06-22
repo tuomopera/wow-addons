@@ -473,6 +473,7 @@ SlashCmdList.GANK = function(msg)
 		end
 		print("|cffff4040GankList|r |cff808080(gankers are added automatically when they kill you)|r")
 		line("/gank", "open the window")
+		line("/gank add Name", "manually add a ganker")
 		line("/gank forgive Name", "remove a ganker")
 		line("/gank friend Name", "sync with a friend  (no name = list, 'reset' = clear)")
 		line("/gank unfriend Name", "stop syncing with a friend")
@@ -530,6 +531,15 @@ SlashCmdList.GANK = function(msg)
 	elseif cmd == "sync" then
 		sendAll()
 		print("|cffff4040GankList:|r pushed list to friends")
+
+	elseif cmd == "add" then
+		local name = arg ~= "" and arg or (UnitExists("target") and UnitIsPlayer("target") and UnitName("target"))
+		name = name and cleanName(name)
+		if not name then print("|cffff4040GankList:|r /gank add <name>  (or target a player first)") return end
+		record(name, GetRealZoneText(), me)
+		send(name)
+		if refreshUI then refreshUI() end
+		print("|cffff4040GankList:|r added " .. name)
 
 	elseif cmd == "remove" or cmd == "forgive" then
 		local name = arg ~= "" and arg or (UnitExists("target") and UnitIsPlayer("target") and UnitName("target"))

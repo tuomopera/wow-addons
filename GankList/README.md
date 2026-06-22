@@ -25,12 +25,13 @@ the character-select screen enable **GankList** under **AddOns**.
 
 ## Use
 
-Gankers can't be added by hand - the only way onto the list is by **killing
-you**. You can only ever remove (forgive) someone afterward.
+Gankers are added **automatically** when they kill you (see below), but you can
+also add or remove someone by hand.
 
 | Command | What it does |
 |---|---|
 | `/gank` | open the window (Wanted + Suspects tabs) |
+| `/gank add Name` | manually add a ganker (or target them and omit the name) |
 | `/gank forgive Name` | remove a ganker (or target them and omit the name) |
 | `/gank friend Name` | sync with a friend (no name = list them, `reset` = clear all) |
 | `/gank unfriend Name` | stop syncing with a friend |
