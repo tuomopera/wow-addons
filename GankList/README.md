@@ -35,12 +35,12 @@ you**. You can only ever remove (forgive) someone afterward.
 | `/gank pending` | show suspects (killed you once, not yet listed) |
 | `/gank list` | print the list to chat |
 | `/gank party` | announce the list to party/raid chat |
-| `/gank partner add Name` | sync with a friend |
-| `/gank partner remove Name` | stop syncing with them |
-| `/gank partner reset` | clear all sync partners |
-| `/gank partner` | show your sync partners |
-| `/gank sync` | push your list to partners now |
-| `/gank autoaccept on\|off` | auto-accept partners' forgive requests |
+| `/gank friend add Name` | sync with a friend |
+| `/gank friend remove Name` | stop syncing with them |
+| `/gank friend reset` | clear all sync friends |
+| `/gank friend` | show your sync friends |
+| `/gank sync` | push your list to friends now |
+| `/gank autoaccept on\|off` | auto-accept friends' forgive requests |
 | `/gank check` | reload-safe diagnostic |
 | `/gank help` | show all commands |
 
@@ -58,15 +58,15 @@ target / mouseover).
 
 ## Syncing
 
-Add each other as partners on both PCs:
+Add each other as friends on both PCs:
 
 ```
-/gank partner add FriendName
+/gank friend add FriendName
 ```
 
 New gankers then sync automatically (and on login). Sync uses addon whispers, so
 it only works while you're **same faction** and able to whisper each other. Only
-names in your partner list are accepted — strangers can't inject entries.
+names in your friend list are accepted — strangers can't inject entries.
 
 (On a single-realm server like Anniversary's Spineshatter, just the character name
 is enough — no realm suffix needed. The addon still accepts a `Name-Realm` form if

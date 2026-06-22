@@ -83,7 +83,7 @@ local function onReceive(payload, sender)
 		for _, p in ipairs(ensureDB().partners) do C_ChatInfo.SendAddonMessage(PREFIX, "PONG", "WHISPER", p) end
 		return
 	elseif kind == "PONG" then
-		print("|cff40ff40GankList:|r " .. (sender or "a partner") .. " got your ping — sync works \226\156\147")
+		print("|cff40ff40GankList:|r " .. (sender or "a friend") .. " got your ping — sync works \226\156\147")
 		return
 	end
 
@@ -96,9 +96,9 @@ local function onReceive(payload, sender)
 		if db.autoAccept then
 			db.gankers[name] = nil
 			if refreshUI then refreshUI() end
-			print("|cffff4040GankList:|r " .. (sender or "a partner") .. " forgave " .. name .. " (auto-accepted)")
+			print("|cffff4040GankList:|r " .. (sender or "a friend") .. " forgave " .. name .. " (auto-accepted)")
 		else
-			StaticPopup_Show("GANKLIST_FORGIVE", sender or "A partner", name, { name = name })
+			StaticPopup_Show("GANKLIST_FORGIVE", sender or "A friend", name, { name = name })
 		end
 		return
 	end
@@ -439,7 +439,7 @@ local function buildUI()
 	auto:SetPoint("BOTTOMLEFT", 12, 34)
 	local autoLabel = auto:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	autoLabel:SetPoint("LEFT", auto, "RIGHT", 2, 0)
-	autoLabel:SetText("Auto-accept partners' forgive requests")
+	autoLabel:SetText("Auto-accept friends' forgive requests")
 	auto:SetScript("OnClick", function(self) ensureDB().autoAccept = self:GetChecked() and true or false end)
 	frame.auto = auto
 
@@ -448,7 +448,7 @@ local function buildUI()
 	sync:SetSize(150, 22)
 	sync:SetPoint("BOTTOM", 0, 8)
 	sync:SetText("Sync Partners")
-	sync:SetScript("OnClick", function() sendAll(); print("|cffff4040GankList:|r pushed list to partners") end)
+	sync:SetScript("OnClick", function() sendAll(); print("|cffff4040GankList:|r pushed list to friends") end)
 
 	tinsert(UISpecialFrames, "GankListFrame") -- close with Escape
 	frame:Hide() -- templates start shown; hide so the first /gank toggles it open
@@ -477,29 +477,29 @@ SlashCmdList.GANK = function(msg)
 		line("/gank pending", "show suspects (killed you once)")
 		line("/gank list", "show the list in chat")
 		line("/gank party", "announce the list to party/raid")
-		line("/gank partner add Name", "sync with a friend")
-		line("/gank partner", "show your sync partners")
-		line("/gank partner reset", "clear all sync partners")
-		line("/gank ping", "test the sync link with your partners")
-		line("/gank sync", "push your list to partners now")
-		line("/gank autoaccept on|off", "auto-accept partners' forgives")
+		line("/gank friend add Name", "sync with a friend")
+		line("/gank friend", "show your sync friends")
+		line("/gank friend reset", "clear all sync friends")
+		line("/gank ping", "test the sync link with your friends")
+		line("/gank sync", "push your list to friends now")
+		line("/gank autoaccept on|off", "auto-accept friends' forgives")
 		line("/gank check", "reload-safe diagnostic")
 		return
 	end
 
-	if cmd == "partner" then
+	if cmd == "friend" or cmd == "partner" then -- "partner" kept as a silent alias
 		local sub, who = arg:match("^(%S*)%s*(.-)$")
 		if sub == "add" and who ~= "" then
 			table.insert(db.partners, who)
 			print("|cffff4040GankList:|r syncing with " .. who)
 		elseif sub == "remove" and who ~= "" then
 			for i, p in ipairs(db.partners) do if p == who then table.remove(db.partners, i) break end end
-			print("|cffff4040GankList:|r removed partner " .. who)
+			print("|cffff4040GankList:|r removed friend " .. who)
 		elseif sub == "reset" then
 			wipe(db.partners)
-			print("|cffff4040GankList:|r cleared all sync partners")
+			print("|cffff4040GankList:|r cleared all sync friends")
 		else
-			print("|cffff4040GankList:|r partners: " .. (#db.partners > 0 and table.concat(db.partners, ", ") or "(none)"))
+			print("|cffff4040GankList:|r friends: " .. (#db.partners > 0 and table.concat(db.partners, ", ") or "(none)"))
 		end
 
 	elseif cmd == "check" then
@@ -513,7 +513,7 @@ SlashCmdList.GANK = function(msg)
 		print("  saved DB loaded ........ " .. ok(GankListDB ~= nil) .. "  (" .. n .. " gankers)")
 		print("  player GUID set ........ " .. ok(playerGUID ~= nil))
 		print("  addon prefix ready ..... " .. ok(registered) .. (registered and "" or " (re-registered now)"))
-		print("  partners configured .... " .. ok(#db.partners > 0) .. "  (" .. (#db.partners > 0 and table.concat(db.partners, ", ") or "none") .. ")")
+		print("  friends configured .... " .. ok(#db.partners > 0) .. "  (" .. (#db.partners > 0 and table.concat(db.partners, ", ") or "none") .. ")")
 		print("  combat-log tracking .... " .. ok(f:IsEventRegistered("COMBAT_LOG_EVENT_UNFILTERED")))
 
 	elseif cmd == "pending" then
@@ -529,13 +529,13 @@ SlashCmdList.GANK = function(msg)
 		print("|cffff4040GankList:|r auto-accept forgive requests " .. (db.autoAccept and "ON" or "OFF"))
 
 	elseif cmd == "ping" then
-		if #db.partners == 0 then print("|cffff4040GankList:|r no partners yet — /gank partner add <name>") return end
+		if #db.partners == 0 then print("|cffff4040GankList:|r no friends yet — /gank friend add <name>") return end
 		for _, p in ipairs(db.partners) do C_ChatInfo.SendAddonMessage(PREFIX, "PING", "WHISPER", p) end
 		print("|cffff8040GankList:|r pinged " .. table.concat(db.partners, ", ") .. " — waiting for reply...")
 
 	elseif cmd == "sync" then
 		sendAll()
-		print("|cffff4040GankList:|r pushed list to partners")
+		print("|cffff4040GankList:|r pushed list to friends")
 
 	elseif cmd == "remove" or cmd == "forgive" then
 		local name = arg ~= "" and arg or (UnitExists("target") and UnitIsPlayer("target") and UnitName("target"))
@@ -568,7 +568,7 @@ SlashCmdList.GANK = function(msg)
 		end
 
 	elseif msg:gsub('["%s]', "") ~= "" then -- unknown input: gankers can't be added by hand
-		print("|cffff4040GankList:|r gankers are added automatically when they kill you — not by name. /gank help")
+		print("|cffff4040GankList:|r unknown command. /gank help")
 
 	else -- bare /gank — open the window
 		toggleUI()
