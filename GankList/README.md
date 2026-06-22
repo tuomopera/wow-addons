@@ -44,10 +44,17 @@ real gankers yourself with `/gank add`.
 | `/gank help` | show all commands |
 
 **Suspects** are everyone who has killed you (with a kill count and their level
-when known), so you can spot the repeat offenders and `/gank add` them to Wanted.
-Suspects self-clean after a week, or dismiss one with its X. You also get a brief
-on-screen alert when a **Wanted** ganker comes into range (nameplate / target /
-mouseover).
+when known), so you can spot the repeat offenders and `/gank add` them to Wanted
+(or hit the **→ Wanted** button on the row). Suspects self-clean after a week, or
+dismiss one with its X.
+
+Once someone's on **Wanted**:
+
+- You get a brief on-screen alert when they come into range (nameplate / target /
+  mouseover), and the row updates to **last seen `<zone>`, `<time> ago`** so you
+  can hunt them down.
+- When you land the killing blow on them, a **revenge** tally (`⚔ N`) ticks up
+  next to their kill count - sweet, sweet payback.
 
 ## Syncing
 

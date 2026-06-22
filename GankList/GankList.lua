@@ -141,23 +141,47 @@ local function captureNearbyLevels()
 	noteUnit("target"); noteUnit("mouseover")
 end
 
--- Alert when a listed ganker comes into range (nameplate/target/mouseover).
+-- Find a Wanted entry by name, matching the base name too (stored key may have -Realm).
+local function findGanker(db, name)
+	if db.gankers[name] then return db.gankers[name] end
+	local base = name:match("^[^-]+")
+	for k, v in pairs(db.gankers) do if k:match("^[^-]+") == base then return v end end
+end
+
+-- Relative "time ago" for the last-seen stamp.
+local function fmtAgo(t)
+	if type(t) ~= "number" then return "?" end
+	local s = time() - t
+	if s < 60 then return "just now"
+	elseif s < 3600 then return math.floor(s / 60) .. "m ago"
+	elseif s < 86400 then return math.floor(s / 3600) .. "h ago"
+	else return math.floor(s / 86400) .. "d ago" end
+end
+
+-- Alert when a listed ganker comes into range, and stamp where/when we last saw them.
 local alertSeen = {} -- name -> last alert time, throttled to 1/60s
 local function alertIfGanker(unit)
 	if not UnitExists(unit) or not UnitIsPlayer(unit) then return end
 	local name = UnitName(unit)
 	if not name then return end
-	local db = ensureDB()
-	local g = db.gankers[name]
-	if not g then -- match base name too (stored key may include -Realm)
-		local base = name:match("^[^-]+")
-		for k, v in pairs(db.gankers) do if k:match("^[^-]+") == base then g = v break end end
-	end
+	local g = findGanker(ensureDB(), name)
 	if not g then return end
+	g.seenZone = GetRealZoneText() -- last-seen tracker (every sighting, not throttled)
+	g.seenAt = time()
+	if refreshUI then refreshUI() end
 	local now = GetTime()
 	if alertSeen[name] and now - alertSeen[name] < 60 then return end
 	alertSeen[name] = now
 	UIErrorsFrame:AddMessage("Ganker nearby: " .. name .. " (x" .. g.count .. ")", 1, 0.2, 0.2, 1, 5)
+end
+
+-- Revenge: you landed a killing blow on a Wanted player.
+local function noteRevenge(name)
+	local g = findGanker(ensureDB(), name)
+	if not g then return end
+	g.revenge = (g.revenge or 0) + 1
+	if refreshUI then refreshUI() end
+	UIErrorsFrame:AddMessage("Got even with " .. name .. "! (" .. g.revenge .. ")", 0.3, 1, 0.3, 1, 5)
 end
 
 -- A player kill is only ever logged to the Suspects list (a kill log you review).
@@ -196,7 +220,11 @@ f:RegisterEvent("PLAYER_TARGET_CHANGED")
 
 f:SetScript("OnEvent", function(_, event, ...)
 	if event == "COMBAT_LOG_EVENT_UNFILTERED" then
-		local _, sub, _, _, srcName, srcFlags, _, destGUID = CombatLogGetCurrentEventInfo()
+		local _, sub, _, srcGUID, srcName, srcFlags, _, destGUID, destName = CombatLogGetCurrentEventInfo()
+		if sub == "PARTY_KILL" and srcGUID == playerGUID and destName then
+			noteRevenge(destName) -- you landed the killing blow on someone
+			return
+		end
 		if destGUID ~= playerGUID then return end
 		if not sub:find("_DAMAGE") then return end
 		local isPlayer = bit.band(srcFlags or 0, COMBATLOG_OBJECT_TYPE_PLAYER) > 0
@@ -317,8 +345,13 @@ function refreshUI()
 			local r = e.r
 			local lvl = fmtLvl(r.g.level or levelSeen[r.name])
 			row.name:SetText("|cffff6060" .. r.name .. "|r" .. (lvl ~= "" and "  |cff9090ff" .. lvl .. "|r" or ""))
-			row.info:SetText((r.g.zone or "?") .. "  ·  " .. fmtTime(r.g.last))
-			row.count:SetText("x" .. r.g.count)
+			if r.g.seenAt then -- once spotted, the row becomes a tracker
+				row.info:SetText("|cff80c0fflast seen " .. (r.g.seenZone or "?") .. "  ·  " .. fmtAgo(r.g.seenAt) .. "|r")
+			else
+				row.info:SetText((r.g.zone or "?") .. "  ·  " .. fmtTime(r.g.last))
+			end
+			local rev = r.g.revenge or 0
+			row.count:SetText("x" .. r.g.count .. (rev > 0 and "  |cff60ff60\226\154\148" .. rev .. "|r" or ""))
 			row.del:Show(); row.promote:Hide()
 			row.del:SetScript("OnClick", function()
 				db.gankers[r.name] = nil
