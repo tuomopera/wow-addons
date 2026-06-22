@@ -458,6 +458,7 @@ SlashCmdList.GANK = function(msg)
 		line("/gank party", "announce the list to party/raid")
 		line("/gank partner add Name", "sync with a friend")
 		line("/gank partner", "show your sync partners")
+		line("/gank partner reset", "clear all sync partners")
 		line("/gank ping", "test the sync link with your partners")
 		line("/gank sync", "push your list to partners now")
 		line("/gank autoaccept on|off", "auto-accept partners' forgives")
@@ -473,6 +474,9 @@ SlashCmdList.GANK = function(msg)
 		elseif sub == "remove" and who ~= "" then
 			for i, p in ipairs(db.partners) do if p == who then table.remove(db.partners, i) break end end
 			print("|cffff4040GankList:|r removed partner " .. who)
+		elseif sub == "reset" then
+			wipe(db.partners)
+			print("|cffff4040GankList:|r cleared all sync partners")
 		else
 			print("|cffff4040GankList:|r partners: " .. (#db.partners > 0 and table.concat(db.partners, ", ") or "(none)"))
 		end

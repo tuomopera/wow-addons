@@ -37,6 +37,7 @@ you**. You can only ever remove (forgive) someone afterward.
 | `/gank party` | announce the list to party/raid chat |
 | `/gank partner add Name` | sync with a friend |
 | `/gank partner remove Name` | stop syncing with them |
+| `/gank partner reset` | clear all sync partners |
 | `/gank partner` | show your sync partners |
 | `/gank sync` | push your list to partners now |
 | `/gank autoaccept on\|off` | auto-accept partners' forgive requests |
