@@ -30,6 +30,8 @@ the character-select screen enable **GankList** under **AddOns**.
 | `/gank` | open the window |
 | `/gank "Name"` | add a player to the list |
 | `/gank add [Name]` | add (or target a player and omit the name) |
+| `/gank addlast` | add the player who most recently killed you |
+| `/gank pending` | show suspects (killed you once, not yet listed) |
 | `/gank forgive Name` | remove a player (made amends) |
 | `/gank list` | print the list to chat |
 | `/gank party` | announce the list to party/raid chat |
@@ -41,9 +43,12 @@ the character-select screen enable **GankList** under **AddOns**.
 | `/gank check` | reload-safe diagnostic |
 | `/gank help` | show all commands |
 
-It also **auto-records** whoever lands the killing damage on you (last hostile
-player within 12s of your death), and gives a brief on-screen alert when a listed
-ganker comes into range (nameplate / target / mouseover).
+**Two-strike auto-tracking:** not every PvP death is a gank. The first player to
+kill you is remembered as a *suspect* — kill you a second time and they're
+promoted to the gank list automatically. If you know the first death was a gank,
+`/gank addlast` lists them immediately; `/gank pending` shows current suspects.
+Suspects are forgotten after 3 days. You also get a brief on-screen alert when a
+listed ganker comes into range (nameplate / target / mouseover).
 
 ## Syncing
 

@@ -13,6 +13,7 @@ local function ensureDB()
 	GankListDB = GankListDB or {}
 	GankListDB.gankers = GankListDB.gankers or {}   -- [name] = { count, last, zone, by }
 	GankListDB.partners = GankListDB.partners or {}  -- list of character names
+	GankListDB.pending = GankListDB.pending or {}    -- [name] = epoch of first kill (not yet a confirmed ganker)
 	return GankListDB
 end
 
@@ -121,6 +122,34 @@ local function alertIfGanker(unit)
 	UIErrorsFrame:AddMessage("Ganker nearby: " .. name .. " (x" .. g.count .. ")", 1, 0.2, 0.2, 1, 5)
 end
 
+-- Two-strike kill handling: not every PvP death is a gank. A first kill marks the
+-- player as a "suspect" (pending); a repeat kill promotes them to the gank list.
+local PENDING_TTL = 3 * 86400 -- forget a one-off killer after 3 days
+local lastKiller -- most recent player to kill you, for /gank addlast
+local function handleKill(name)
+	name = cleanName(name)
+	if not name then return end
+	lastKiller = name
+	local db = ensureDB()
+	for n, t in pairs(db.pending) do -- prune stale suspects
+		if (tonumber(t) or 0) < time() - PENDING_TTL then db.pending[n] = nil end
+	end
+	if db.gankers[name] then -- already a known ganker: just tally
+		record(name, GetRealZoneText(), me)
+		send(name)
+		print("|cffff4040GankList:|r " .. name .. " ganked you again (x" .. db.gankers[name].count .. ")")
+	elseif db.pending[name] then -- second strike: promote to the list
+		db.pending[name] = nil
+		record(name, GetRealZoneText(), me)
+		send(name)
+		print("|cffff4040GankList:|r " .. name .. " killed you again — added to the gank list. /gank forgive " .. name .. " to undo")
+	else -- first strike: remember as a suspect only
+		db.pending[name] = time()
+		print("|cffff8040GankList:|r " .. name .. " killed you. Added if it happens again — or /gank addlast to list them now")
+	end
+	if refreshUI then refreshUI() end
+end
+
 -- ---- events --------------------------------------------------------------
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_LOGIN")
@@ -144,11 +173,8 @@ f:SetScript("OnEvent", function(_, event, ...)
 
 	elseif event == "PLAYER_DEAD" then
 		if lastHit and (GetTime() - lastHit.t) <= DEATH_WINDOW then
-			record(lastHit.name, GetRealZoneText(), me)
-			send(lastHit.name)
-			print("|cffff4040GankList:|r noted " .. lastHit.name .. " ganked you in " .. (GetRealZoneText() or "?"))
+			handleKill(lastHit.name)
 			lastHit = nil
-			if refreshUI then refreshUI() end
 		end
 
 	elseif event == "NAME_PLATE_UNIT_ADDED" then
@@ -379,6 +405,8 @@ SlashCmdList.GANK = function(msg)
 		line("/gank", "open the window")
 		line('/gank "Name"', "add a player to the list")
 		line("/gank add [Name]", "add (or target a player and omit the name)")
+		line("/gank addlast", "add the player who most recently killed you")
+		line("/gank pending", "show suspects (killed you once, not yet listed)")
 		line("/gank forgive Name", "remove a player (made amends)")
 		line("/gank list", "print the list to chat")
 		line("/gank party", "announce the list to party/raid chat")
@@ -421,6 +449,20 @@ SlashCmdList.GANK = function(msg)
 		print("  addon prefix ready ..... " .. ok(registered) .. (registered and "" or " (re-registered now)"))
 		print("  partners configured .... " .. ok(#db.partners > 0) .. "  (" .. (#db.partners > 0 and table.concat(db.partners, ", ") or "none") .. ")")
 		print("  combat-log tracking .... " .. ok(f:IsEventRegistered("COMBAT_LOG_EVENT_UNFILTERED")))
+
+	elseif cmd == "addlast" then
+		if lastKiller then
+			db.pending[lastKiller] = nil
+			addByName(lastKiller)
+		else
+			print("|cffff4040GankList:|r no recent killer recorded")
+		end
+
+	elseif cmd == "pending" then
+		print("|cffff8040GankList — suspects (one kill so far):|r")
+		local any = false
+		for n in pairs(db.pending) do print("  " .. n); any = true end
+		if not any then print("  (none)") end
 
 	elseif cmd == "autoaccept" then
 		if arg == "on" then db.autoAccept = true elseif arg == "off" then db.autoAccept = false
