@@ -6,19 +6,21 @@ works on other Classic flavors via fallbacks.
 
 ## Install
 
-Clone (or download) this folder into your AddOns directory so the path is:
+**Easiest:** [**Download GankList.zip**](https://github.com/tuomopera/wow-addons/raw/main/GankList.zip)
+and extract the `GankList` folder into your AddOns directory, so the path is:
 
 ```
 World of Warcraft/_anniversary_/Interface/AddOns/GankList/GankList.toc
 ```
 
+Make sure there's no double folder (`AddOns/GankList/GankList/...`).
+
+**Or with git:**
+
 ```bash
 cd ".../World of Warcraft/_anniversary_/Interface/AddOns"
-git clone git@github.com:tuomopera/wow-addons.git tmp && mv tmp/GankList . && rm -rf tmp
+git clone https://github.com/tuomopera/wow-addons.git tmp && mv tmp/GankList . && rm -rf tmp
 ```
-
-Or grab **Code → Download ZIP**, and copy the `GankList` folder out of it into
-`AddOns`. Make sure there's no double folder (`AddOns/GankList/GankList/...`).
 
 Then **fully restart WoW** (addons are read at launch, not on `/reload`), and at
 the character-select screen enable **GankList** under **AddOns**.
