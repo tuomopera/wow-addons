@@ -190,6 +190,15 @@ local function fmtAgo(t)
 	else return math.floor(s / 86400) .. "d ago" end
 end
 
+-- Big center-screen alert (raid-warning style), with a small-text fallback.
+local function bigAlert(msg, r, g, b)
+	if RaidNotice_AddMessage and RaidWarningFrame then
+		RaidNotice_AddMessage(RaidWarningFrame, msg, { r = r, g = g, b = b }, 5)
+	else
+		UIErrorsFrame:AddMessage(msg, r, g, b, 1, 5)
+	end
+end
+
 -- Alert when a listed ganker comes into range, and stamp where/when we last saw them.
 local alertSeen = {} -- name -> last alert time, throttled to 1/60s
 local function alertIfGanker(unit)
@@ -204,7 +213,7 @@ local function alertIfGanker(unit)
 	local now = GetTime()
 	if alertSeen[name] and now - alertSeen[name] < 60 then return end
 	alertSeen[name] = now
-	UIErrorsFrame:AddMessage("Ganker nearby: " .. name .. " (x" .. g.count .. ")", 1, 0.2, 0.2, 1, 5)
+	bigAlert("Ganker nearby: " .. name .. " (x" .. g.count .. ")", 1, 0.2, 0.2)
 end
 
 -- Revenge: you landed a killing blow on a Wanted player.
