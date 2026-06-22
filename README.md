@@ -6,7 +6,7 @@ Personal World of Warcraft addons.
 
 Remember who ganked you while leveling, synced with a friend or two.
 
-- **[Download GankList.zip](https://github.com/tuomopera/wow-addons/raw/main/GankList.zip)** — extract the `GankList` folder into `World of Warcraft/_anniversary_/Interface/AddOns/`, restart WoW, enable it.
+- **[Download GankList.zip](https://raw.githubusercontent.com/tuomopera/wow-addons/main/GankList.zip)** — extract the `GankList` folder into `World of Warcraft/_anniversary_/Interface/AddOns/`, restart WoW, enable it.
 - Full docs & commands: **[GankList/README.md](GankList/)**
 
 Maintainer note: after editing the addon, run `./build.sh` to refresh `GankList.zip`, then commit.
