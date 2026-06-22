@@ -399,16 +399,21 @@ SlashCmdList.GANK = function(msg)
 
 	if cmd == "help" then
 		local function line(c, desc)
-			print("  |cffffd100" .. c .. "|r  |cff808080—|r  " .. desc)
+			print("  |cffffd100" .. c .. "|r  |cff808080-|r  " .. desc)
 		end
 		print("|cffff4040GankList|r")
 		line("/gank", "open the window")
 		line('/gank "Name"', "add someone")
 		line("/gank forgive Name", "remove someone")
 		line("/gank addlast", "add whoever just killed you")
+		line("/gank pending", "show suspects (killed you once)")
 		line("/gank list", "show the list in chat")
+		line("/gank party", "announce the list to party/raid")
 		line("/gank partner add Name", "sync with a friend")
-		print("  |cff808080more: pending, party, sync, partner, autoaccept, check|r")
+		line("/gank partner", "show your sync partners")
+		line("/gank sync", "push your list to partners now")
+		line("/gank autoaccept on|off", "auto-accept partners' forgives")
+		line("/gank check", "reload-safe diagnostic")
 		return
 	end
 
