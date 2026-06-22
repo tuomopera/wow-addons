@@ -25,14 +25,14 @@ the character-select screen enable **GankList** under **AddOns**.
 
 ## Use
 
+Gankers can't be added by hand — the only way onto the list is by **killing
+you**. You can only ever remove (forgive) someone afterward.
+
 | Command | What it does |
 |---|---|
 | `/gank` | open the window |
-| `/gank "Name"` | add a player to the list |
-| `/gank add [Name]` | add (or target a player and omit the name) |
-| `/gank addlast` | add the player who most recently killed you |
-| `/gank pending` | show suspects (killed you once, not yet listed) |
 | `/gank forgive Name` | remove a player (made amends) |
+| `/gank pending` | show suspects (killed you once, not yet listed) |
 | `/gank list` | print the list to chat |
 | `/gank party` | announce the list to party/raid chat |
 | `/gank partner add Name` | sync with a friend |
@@ -45,9 +45,8 @@ the character-select screen enable **GankList** under **AddOns**.
 
 **Two-strike auto-tracking:** not every PvP death is a gank. The first player to
 kill you is remembered as a *suspect* — kill you a second time and they're
-promoted to the gank list automatically. If you know the first death was a gank,
-`/gank addlast` lists them immediately; `/gank pending` shows current suspects.
-Suspects are forgotten after 3 days. You also get a brief on-screen alert when a
+promoted to the gank list automatically. `/gank pending` shows current suspects;
+suspects are forgotten after 3 days. You also get a brief on-screen alert when a
 listed ganker comes into range (nameplate / target / mouseover).
 
 ## Syncing

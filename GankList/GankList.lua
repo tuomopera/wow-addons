@@ -125,11 +125,9 @@ end
 -- Two-strike kill handling: not every PvP death is a gank. A first kill marks the
 -- player as a "suspect" (pending); a repeat kill promotes them to the gank list.
 local PENDING_TTL = 3 * 86400 -- forget a one-off killer after 3 days
-local lastKiller -- most recent player to kill you, for /gank addlast
 local function handleKill(name)
 	name = cleanName(name)
 	if not name then return end
-	lastKiller = name
 	local db = ensureDB()
 	for n, t in pairs(db.pending) do -- prune stale suspects
 		if (tonumber(t) or 0) < time() - PENDING_TTL then db.pending[n] = nil end
@@ -145,7 +143,7 @@ local function handleKill(name)
 		print("|cffff4040GankList:|r " .. name .. " killed you again — added to the gank list. /gank forgive " .. name .. " to undo")
 	else -- first strike: remember as a suspect only
 		db.pending[name] = time()
-		print("|cffff8040GankList:|r " .. name .. " killed you. Added if it happens again — or /gank addlast to list them now")
+		print("|cffff8040GankList:|r " .. name .. " killed you. They'll be added if it happens again.")
 	end
 	if refreshUI then refreshUI() end
 end
@@ -204,23 +202,6 @@ end)
 
 -- ---- UI ------------------------------------------------------------------
 local UI, rowPool = nil, {}
-
-local function addByName(name)
-	name = cleanName(name)
-	if not name then print("|cffff4040GankList:|r that's not a valid player name") return end
-	record(name, GetRealZoneText(), me)
-	send(name)
-	if refreshUI then refreshUI() end
-	print("|cffff4040GankList:|r added " .. name)
-end
-
-StaticPopupDialogs["GANKLIST_ADD"] = {
-	text = "Add a player to the gank list:",
-	button1 = ADD or "Add", button2 = CANCEL,
-	hasEditBox = true, timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
-	OnAccept = function(self) addByName(self.editBox:GetText()) end,
-	EditBoxOnEnterPressed = function(self) addByName(self:GetText()); self:GetParent():Hide() end,
-}
 
 StaticPopupDialogs["GANKLIST_FORGIVE"] = {
 	text = "%s wants to forgive %s.\nRemove them from your list too?",
@@ -362,21 +343,10 @@ local function buildUI()
 	auto:SetScript("OnClick", function(self) ensureDB().autoAccept = self:GetChecked() and true or false end)
 	frame.auto = auto
 
-	local add = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-	add:SetSize(150, 22)
-	add:SetPoint("BOTTOMLEFT", 12, 8)
-	add:SetText("Add Player")
-	add:SetScript("OnClick", function()
-		if UnitExists("target") and UnitIsPlayer("target") then
-			addByName(UnitName("target"))
-		else
-			StaticPopup_Show("GANKLIST_ADD") -- no target: ask for a name
-		end
-	end)
-
+	-- No manual add: gankers only get on the list by killing you. Just a sync button.
 	local sync = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 	sync:SetSize(150, 22)
-	sync:SetPoint("BOTTOMRIGHT", -28, 8)
+	sync:SetPoint("BOTTOM", 0, 8)
 	sync:SetText("Sync Partners")
 	sync:SetScript("OnClick", function() sendAll(); print("|cffff4040GankList:|r pushed list to partners") end)
 
@@ -401,11 +371,9 @@ SlashCmdList.GANK = function(msg)
 		local function line(c, desc)
 			print("  |cffffd100" .. c .. "|r  |cff808080-|r  " .. desc)
 		end
-		print("|cffff4040GankList|r")
+		print("|cffff4040GankList|r |cff808080(gankers are added automatically when they kill you)|r")
 		line("/gank", "open the window")
-		line('/gank "Name"', "add someone")
-		line("/gank forgive Name", "remove someone")
-		line("/gank addlast", "add whoever just killed you")
+		line("/gank forgive Name", "remove someone (made amends)")
 		line("/gank pending", "show suspects (killed you once)")
 		line("/gank list", "show the list in chat")
 		line("/gank party", "announce the list to party/raid")
@@ -417,12 +385,7 @@ SlashCmdList.GANK = function(msg)
 		return
 	end
 
-	if cmd == "add" then
-		local name = arg ~= "" and arg or (UnitExists("target") and UnitIsPlayer("target") and UnitName("target"))
-		if not name then print("|cffff4040GankList:|r /gank add <name>  (or target a player first)") return end
-		addByName(name)
-
-	elseif cmd == "partner" then
+	if cmd == "partner" then
 		local sub, who = arg:match("^(%S*)%s*(.-)$")
 		if sub == "add" and who ~= "" then
 			table.insert(db.partners, who)
@@ -447,14 +410,6 @@ SlashCmdList.GANK = function(msg)
 		print("  addon prefix ready ..... " .. ok(registered) .. (registered and "" or " (re-registered now)"))
 		print("  partners configured .... " .. ok(#db.partners > 0) .. "  (" .. (#db.partners > 0 and table.concat(db.partners, ", ") or "none") .. ")")
 		print("  combat-log tracking .... " .. ok(f:IsEventRegistered("COMBAT_LOG_EVENT_UNFILTERED")))
-
-	elseif cmd == "addlast" then
-		if lastKiller then
-			db.pending[lastKiller] = nil
-			addByName(lastKiller)
-		else
-			print("|cffff4040GankList:|r no recent killer recorded")
-		end
 
 	elseif cmd == "pending" then
 		print("|cffff8040GankList — suspects (one kill so far):|r")
@@ -502,8 +457,8 @@ SlashCmdList.GANK = function(msg)
 			SendChatMessage(("%s x%d (%s)"):format(r.name, r.g.count, r.g.zone or "?"), chan)
 		end
 
-	elseif msg:gsub('["%s]', "") ~= "" then -- /gank "Name" — treat any leftover input as a player to add
-		addByName(msg)
+	elseif msg:gsub('["%s]', "") ~= "" then -- unknown input: gankers can't be added by hand
+		print("|cffff4040GankList:|r gankers are added automatically when they kill you — not by name. /gank help")
 
 	else -- bare /gank — open the window
 		toggleUI()
