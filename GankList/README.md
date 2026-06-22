@@ -35,7 +35,7 @@ the character-select screen enable **GankList** under **AddOns**.
 | `/gank forgive Name` | remove a player (made amends) |
 | `/gank list` | print the list to chat |
 | `/gank party` | announce the list to party/raid chat |
-| `/gank partner add Name-Realm` | sync with a friend |
+| `/gank partner add Name` | sync with a friend |
 | `/gank partner remove Name` | stop syncing with them |
 | `/gank partner` | show your sync partners |
 | `/gank sync` | push your list to partners now |
@@ -55,11 +55,15 @@ listed ganker comes into range (nameplate / target / mouseover).
 Add each other as partners on both PCs:
 
 ```
-/gank partner add FriendName-FriendRealm
+/gank partner add FriendName
 ```
 
 New gankers then sync automatically (and on login). Sync uses addon whispers, so
 it only works while you're **same faction** and able to whisper each other. Only
 names in your partner list are accepted — strangers can't inject entries.
+
+(On a single-realm server like Anniversary's Spineshatter, just the character name
+is enough — no realm suffix needed. The addon still accepts a `Name-Realm` form if
+you're ever on a connected realm.)
 
 Your actual list lives in your local SavedVariables, never in this repo.

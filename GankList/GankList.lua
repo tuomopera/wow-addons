@@ -407,7 +407,7 @@ SlashCmdList.GANK = function(msg)
 		line("/gank forgive Name", "remove someone")
 		line("/gank addlast", "add whoever just killed you")
 		line("/gank list", "show the list in chat")
-		line("/gank partner add Name-Realm", "sync with a friend")
+		line("/gank partner add Name", "sync with a friend")
 		print("  |cff808080more: pending, party, sync, partner, autoaccept, check|r")
 		return
 	end
