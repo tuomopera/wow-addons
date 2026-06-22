@@ -261,6 +261,7 @@ function refreshUI()
 	local wanted = UI.tab ~= "suspects"
 	UI.tabWanted:SetButtonState(wanted and "PUSHED" or "NORMAL")
 	UI.tabSuspect:SetButtonState(wanted and "NORMAL" or "PUSHED")
+	UI.setTitle(wanted and "Wanted" or "Suspects")
 
 	local entries = {}
 	if wanted then
@@ -355,11 +356,12 @@ local function buildUI()
 		end
 	end)
 
-	if frame.SetTitle then
-		frame:SetTitle("GankList — Wanted")
-	elseif frame.TitleText then
-		frame.TitleText:SetText("GankList — Wanted")
+	-- Title shows just the active tab name (set per-tab in refreshUI).
+	function frame.setTitle(text)
+		if frame.SetTitle then frame:SetTitle(text)
+		elseif frame.TitleText then frame.TitleText:SetText(text) end
 	end
+	frame.setTitle("Wanted")
 	-- Top-left "captured enemy" icon (rogue Sap = a bound/shackled humanoid).
 	-- Use the template's portrait when present, else add an explicit icon.
 	local ENEMY_ICON = "Interface\\Icons\\Ability_Sap"
