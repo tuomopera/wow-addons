@@ -25,8 +25,9 @@ the character-select screen enable **GankList** under **AddOns**.
 
 ## Use
 
-Gankers are added **automatically** when they kill you (see below), but you can
-also add or remove someone by hand.
+When a player kills you they're logged in the **Suspects** tab - a kill log you
+review. Nobody is added to the **Wanted** list automatically; you promote the
+real gankers yourself with `/gank add`.
 
 | Command | What it does |
 |---|---|
@@ -42,17 +43,11 @@ also add or remove someone by hand.
 | `/gank check` | reload-safe diagnostic |
 | `/gank help` | show all commands |
 
-**What counts as a gank** (auto-added) vs. a fair death:
-
-- **Outmatched** - the killer is 3+ levels above you (or shows as a skull `??`).
-  You couldn't fight back, so a single kill is enough.
-- **Camped** - the same player kills you *again within an hour* (e.g. catching you
-  each time you respawn). Repeat targeting, not bad luck.
-
-A lone kill by someone near your level is ambiguous, so it's only a **suspect**
-(see the Suspects tab) and is forgotten after an hour unless they come back. You
-also get a brief on-screen alert when a listed ganker comes into range (nameplate
-/ target / mouseover).
+**Suspects** are everyone who has killed you (with a kill count and their level
+when known), so you can spot the repeat offenders and `/gank add` them to Wanted.
+Suspects self-clean after a week, or dismiss one with its X. You also get a brief
+on-screen alert when a **Wanted** ganker comes into range (nameplate / target /
+mouseover).
 
 ## Syncing
 

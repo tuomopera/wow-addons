@@ -160,38 +160,26 @@ local function alertIfGanker(unit)
 	UIErrorsFrame:AddMessage("Ganker nearby: " .. name .. " (x" .. g.count .. ")", 1, 0.2, 0.2, 1, 5)
 end
 
--- What counts as a gank (auto-add) vs. a fair death (suspect only):
---   * killer is much higher level than you (you couldn't fight back), OR
---   * the same player kills you again within REPEAT_WINDOW (camping your respawns).
--- A lone kill by someone near your level is a "suspect" until they repeat.
-local REPEAT_WINDOW = 3600       -- ponytail: 1h camping window; raise for slower harassment
-local GANK_LEVEL_GAP = 3         -- killer this many levels above you = outmatched
+-- A player kill is only ever logged to the Suspects list (a kill log you review).
+-- Nothing is auto-added to Wanted; you promote real gankers yourself via /gank add.
+local SUSPECT_TTL = 7 * 86400 -- self-clean suspects after a week
 local function handleKill(name)
 	name = cleanName(name)
 	if not name then return end
 	local db = ensureDB()
-	for n, t in pairs(db.pending) do -- forget suspects older than the window
-		if (tonumber(t) or 0) < time() - REPEAT_WINDOW then db.pending[n] = nil end
+	for n, p in pairs(db.pending) do -- drop week-old suspects
+		local t = type(p) == "table" and p.t or tonumber(p) or 0
+		if t < time() - SUSPECT_TTL then db.pending[n] = nil end
 	end
 
-	local lvl = levelSeen[name]
-	local myLvl = UnitLevel("player")
-	local outmatched = lvl and (lvl == -1 or (lvl > 0 and lvl - myLvl >= GANK_LEVEL_GAP))
-	local repeated = db.pending[name] ~= nil
-
-	if db.gankers[name] then -- already a known ganker: just tally
-		record(name, GetRealZoneText(), me, lvl)
-		send(name)
-		print("|cffff4040GankList:|r " .. name .. " ganked you again (x" .. db.gankers[name].count .. ")")
-	elseif outmatched or repeated then -- it's a gank: add to the list
-		db.pending[name] = nil
-		record(name, GetRealZoneText(), me, lvl)
-		send(name)
-		local why = repeated and "killed you again - camping your respawns" or "ganked you (way above your level)"
-		print("|cffff4040GankList:|r " .. name .. " " .. why .. ". Added. /gank forgive " .. name .. " to undo")
-	else -- ambiguous lone kill near your level: just a suspect for now
-		db.pending[name] = time()
-		print("|cffff8040GankList:|r " .. name .. " killed you. Added if they do it again within the hour.")
+	local p = db.pending[name]
+	if type(p) ~= "table" then p = { t = 0, count = tonumber(p) and 1 or 0 }; db.pending[name] = p end
+	p.t = time()
+	p.count = (p.count or 0) + 1
+	if db.gankers[name] then -- already on Wanted: just note the repeat in chat
+		print("|cffff4040GankList:|r " .. name .. " (Wanted) killed you again")
+	else
+		print("|cffff8040GankList:|r " .. name .. " killed you - logged as a suspect. /gank add " .. name .. " to list them")
 	end
 	if refreshUI then refreshUI() end
 end
@@ -270,7 +258,10 @@ function refreshUI()
 	-- Split into the two tabs.
 	local gks, sus = {}, {}
 	for name, g in pairs(db.gankers) do gks[#gks + 1] = { name = name, g = g } end
-	for name, t in pairs(db.pending) do sus[#sus + 1] = { name = name, t = tonumber(t) or 0 } end
+	for name, p in pairs(db.pending) do
+		local t = type(p) == "table" and p.t or tonumber(p) or 0
+		sus[#sus + 1] = { name = name, t = t, count = type(p) == "table" and p.count or 1 }
+	end
 	table.sort(gks, function(a, b) return a.g.count > b.g.count end)
 	table.sort(sus, function(a, b) return a.t > b.t end)
 
@@ -334,7 +325,7 @@ function refreshUI()
 			local r = e.r
 			local lvl = fmtLvl(levelSeen[r.name])
 			row.name:SetText("|cffffa050" .. r.name .. "|r" .. (lvl ~= "" and "  |cff9090ff" .. lvl .. "|r" or ""))
-			row.info:SetText("killed you once  ·  " .. fmtTime(r.t))
+			row.info:SetText("killed you " .. (r.count > 1 and r.count .. "x" or "once") .. "  ·  " .. fmtTime(r.t))
 			row.count:SetText("")
 			row.del:Show()
 			row.del:SetScript("OnClick", function()
@@ -471,7 +462,7 @@ SlashCmdList.GANK = function(msg)
 		local function line(c, desc)
 			print("  |cffffd100" .. c .. "|r  |cff808080-|r  " .. desc)
 		end
-		print("|cffff4040GankList|r |cff808080(gankers are added automatically when they kill you)|r")
+		print("|cffff4040GankList|r |cff808080(killers are logged as Suspects; add the real gankers yourself)|r")
 		line("/gank", "open the window")
 		line("/gank add Name", "manually add a ganker")
 		line("/gank del Name", "remove a ganker")
