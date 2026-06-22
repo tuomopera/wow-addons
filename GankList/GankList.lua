@@ -248,17 +248,24 @@ function refreshUI()
 	local db = ensureDB()
 	if UI.auto then UI.auto:SetChecked(db.autoAccept and true or false) end
 
-	-- Build the display list: gankers (by count), then a header + suspects (by recency).
+	-- Split into the two tabs.
 	local gks, sus = {}, {}
 	for name, g in pairs(db.gankers) do gks[#gks + 1] = { name = name, g = g } end
 	for name, t in pairs(db.pending) do sus[#sus + 1] = { name = name, t = tonumber(t) or 0 } end
 	table.sort(gks, function(a, b) return a.g.count > b.g.count end)
 	table.sort(sus, function(a, b) return a.t > b.t end)
 
+	-- Reflect tab counts + which one is selected.
+	UI.tabWanted:SetText("Wanted (" .. #gks .. ")")
+	UI.tabSuspect:SetText("Suspects (" .. #sus .. ")")
+	local wanted = UI.tab ~= "suspects"
+	UI.tabWanted:SetButtonState(wanted and "PUSHED" or "NORMAL")
+	UI.tabSuspect:SetButtonState(wanted and "NORMAL" or "PUSHED")
+
 	local entries = {}
-	for _, r in ipairs(gks) do entries[#entries + 1] = { kind = "ganker", r = r } end
-	if #sus > 0 then
-		entries[#entries + 1] = { kind = "header", text = "Suspects — one kill so far" }
+	if wanted then
+		for _, r in ipairs(gks) do entries[#entries + 1] = { kind = "ganker", r = r } end
+	else
 		for _, r in ipairs(sus) do entries[#entries + 1] = { kind = "suspect", r = r } end
 	end
 
@@ -291,16 +298,12 @@ function refreshUI()
 		end
 		row:SetPoint("TOPLEFT", 4, -(i - 1) * 36 - 2)
 
-		if e.kind == "header" then
-			row.name:SetText("|cffffd100" .. e.text .. "|r")
-			row.info:SetText(""); row.count:SetText("")
-			row.del:Hide(); row.hl:SetAlpha(0); row:EnableMouse(false)
-		elseif e.kind == "ganker" then
+		if e.kind == "ganker" then
 			local r = e.r
 			row.name:SetText("|cffff6060" .. r.name .. "|r")
 			row.info:SetText((r.g.zone or "?") .. "  ·  " .. fmtTime(r.g.last))
 			row.count:SetText("x" .. r.g.count)
-			row.hl:SetAlpha(1); row:EnableMouse(true); row.del:Show()
+			row.del:Show()
 			row.del:SetScript("OnClick", function()
 				db.gankers[r.name] = nil
 				sendRemove(r.name) -- ask partners to forgive too
@@ -311,7 +314,7 @@ function refreshUI()
 			row.name:SetText("|cffffa050" .. r.name .. "|r")
 			row.info:SetText("killed you once  ·  " .. fmtTime(r.t))
 			row.count:SetText("")
-			row.hl:SetAlpha(1); row:EnableMouse(true); row.del:Show()
+			row.del:Show()
 			row.del:SetScript("OnClick", function()
 				db.pending[r.name] = nil -- dismiss the suspect (local only, not synced)
 				refreshUI()
@@ -320,6 +323,7 @@ function refreshUI()
 		row:Show()
 	end
 	content:SetHeight(math.max(#entries * 36 + 4, 1))
+	UI.empty:SetText(wanted and "No wanted enemies yet." or "No suspects right now.")
 	UI.empty:SetShown(#entries == 0)
 end
 
@@ -380,8 +384,22 @@ local function buildUI()
 		if frame.TitleText then frame.TitleText:SetPoint("LEFT", icon, "RIGHT", 4, 0) end
 	end
 
+	-- Wanted / Suspects tabs (plain buttons styled as tabs; works on every flavor).
+	frame.tab = "wanted"
+	local function makeTab(label, x)
+		local t = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+		t:SetSize(110, 22)
+		t:SetPoint("TOPLEFT", x, -56)
+		t:SetText(label)
+		return t
+	end
+	frame.tabWanted = makeTab("Wanted", 12)
+	frame.tabSuspect = makeTab("Suspects", 126)
+	frame.tabWanted:SetScript("OnClick", function() frame.tab = "wanted"; refreshUI() end)
+	frame.tabSuspect:SetScript("OnClick", function() frame.tab = "suspects"; refreshUI() end)
+
 	local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
-	scroll:SetPoint("TOPLEFT", 10, -58) -- clear the portrait circle that overhangs the title bar
+	scroll:SetPoint("TOPLEFT", 10, -84) -- below the tab row
 	scroll:SetPoint("BOTTOMRIGHT", -30, 60) -- leave room for the auto-accept checkbox + buttons
 	local content = CreateFrame("Frame", nil, scroll)
 	content:SetSize(310, 1)
