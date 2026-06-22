@@ -25,7 +25,7 @@ the character-select screen enable **GankList** under **AddOns**.
 
 ## Use
 
-Gankers can't be added by hand — the only way onto the list is by **killing
+Gankers can't be added by hand - the only way onto the list is by **killing
 you**. You can only ever remove (forgive) someone afterward.
 
 | Command | What it does |
@@ -43,15 +43,15 @@ you**. You can only ever remove (forgive) someone afterward.
 
 **What counts as a gank** (auto-added) vs. a fair death:
 
-- **Outmatched** — the killer is 3+ levels above you (or shows as a skull `??`).
+- **Outmatched** - the killer is 3+ levels above you (or shows as a skull `??`).
   You couldn't fight back, so a single kill is enough.
-- **Camped** — the same player kills you *again within an hour* (e.g. catching you
+- **Camped** - the same player kills you *again within an hour* (e.g. catching you
   each time you respawn). Repeat targeting, not bad luck.
 
 A lone kill by someone near your level is ambiguous, so it's only a **suspect**
-(`/gank pending`) and is forgotten after an hour unless they come back. You also
-get a brief on-screen alert when a listed ganker comes into range (nameplate /
-target / mouseover).
+(see the Suspects tab) and is forgotten after an hour unless they come back. You
+also get a brief on-screen alert when a listed ganker comes into range (nameplate
+/ target / mouseover).
 
 ## Syncing
 
@@ -63,10 +63,10 @@ Add each other as friends on both PCs:
 
 New gankers then sync automatically (and on login). Sync uses addon whispers, so
 it only works while you're **same faction** and able to whisper each other. Only
-names in your friend list are accepted — strangers can't inject entries.
+names in your friend list are accepted - strangers can't inject entries.
 
 (On a single-realm server like Anniversary's Spineshatter, just the character name
-is enough — no realm suffix needed. The addon still accepts a `Name-Realm` form if
+is enough - no realm suffix needed. The addon still accepts a `Name-Realm` form if
 you're ever on a connected realm.)
 
 Your actual list lives in your local SavedVariables, never in this repo.

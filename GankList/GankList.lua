@@ -18,7 +18,7 @@ local function ensureDB()
 end
 
 -- Validate a player name. Returns the cleaned name, or nil if it can't be one.
--- Strips "|" (chat color/hyperlink/texture escapes — anti-injection), and rejects
+-- Strips "|" (chat color/hyperlink/texture escapes - anti-injection), and rejects
 -- digits/whitespace in the character-name part. Accented letters (ä, é, ...) pass.
 local function cleanName(s)
 	s = tostring(s or ""):gsub("|", ""):gsub('"', ""):gsub("^%s+", ""):gsub("%s+$", "")
@@ -79,11 +79,11 @@ local function onReceive(payload, sender)
 	local kind, name, count, zone, by, last = strsplit("\t", payload)
 
 	if kind == "PING" then -- connectivity test: reply so the sender knows it round-tripped
-		print("|cff40ff40GankList:|r ping from " .. (sender or "?") .. " — you two are synced \226\156\147")
+		print("|cff40ff40GankList:|r ping from " .. (sender or "?") .. " - you two are synced \226\156\147")
 		for _, p in ipairs(ensureDB().partners) do C_ChatInfo.SendAddonMessage(PREFIX, "PONG", "WHISPER", p) end
 		return
 	elseif kind == "PONG" then
-		print("|cff40ff40GankList:|r " .. (sender or "a friend") .. " got your ping — sync works \226\156\147")
+		print("|cff40ff40GankList:|r " .. (sender or "a friend") .. " got your ping - sync works \226\156\147")
 		return
 	end
 
@@ -130,7 +130,7 @@ local function noteUnit(unit)
 	end
 end
 
--- At death, grab levels of everyone currently nameplated/targeted — catches the
+-- At death, grab levels of everyone currently nameplated/targeted - catches the
 -- ganker still standing on your corpse even if you never saw them before.
 local function captureNearbyLevels()
 	if C_NamePlate and C_NamePlate.GetNamePlates then
@@ -187,7 +187,7 @@ local function handleKill(name)
 		db.pending[name] = nil
 		record(name, GetRealZoneText(), me, lvl)
 		send(name)
-		local why = repeated and "killed you again — camping your respawns" or "ganked you (way above your level)"
+		local why = repeated and "killed you again - camping your respawns" or "ganked you (way above your level)"
 		print("|cffff4040GankList:|r " .. name .. " " .. why .. ". Added. /gank forgive " .. name .. " to undo")
 	else -- ambiguous lone kill near your level: just a suspect for now
 		db.pending[name] = time()
@@ -523,9 +523,9 @@ SlashCmdList.GANK = function(msg)
 		print("|cffff4040GankList:|r auto-accept forgive requests " .. (db.autoAccept and "ON" or "OFF"))
 
 	elseif cmd == "ping" then
-		if #db.partners == 0 then print("|cffff4040GankList:|r no friends yet — /gank friend add <name>") return end
+		if #db.partners == 0 then print("|cffff4040GankList:|r no friends yet - /gank friend add <name>") return end
 		for _, p in ipairs(db.partners) do C_ChatInfo.SendAddonMessage(PREFIX, "PING", "WHISPER", p) end
-		print("|cffff8040GankList:|r pinged " .. table.concat(db.partners, ", ") .. " — waiting for reply...")
+		print("|cffff8040GankList:|r pinged " .. table.concat(db.partners, ", ") .. " - waiting for reply...")
 
 	elseif cmd == "sync" then
 		sendAll()
@@ -552,7 +552,7 @@ SlashCmdList.GANK = function(msg)
 	elseif msg:gsub('["%s]', "") ~= "" then -- unknown input: gankers can't be added by hand
 		print("|cffff4040GankList:|r unknown command. /gank help")
 
-	else -- bare /gank — open the window
+	else -- bare /gank - open the window
 		toggleUI()
 	end
 end
