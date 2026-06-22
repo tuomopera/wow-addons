@@ -28,7 +28,7 @@ local function cleanName(s)
 	return s
 end
 
-local function record(name, zone, by)
+local function record(name, zone, by, level)
 	local db = ensureDB()
 	local g = db.gankers[name]
 	if not g then
@@ -38,7 +38,14 @@ local function record(name, zone, by)
 	g.count = g.count + 1
 	g.last = time() -- epoch; formatted to each viewer's local time at display
 	g.zone = zone or g.zone
+	if level ~= nil then g.level = level end
 	return g
+end
+
+-- Format a known level for display ("Lv60", "??" for skull, "" if unknown).
+local function fmtLvl(lvl)
+	if lvl == -1 then return "??" elseif type(lvl) == "number" and lvl > 0 then return "Lv" .. lvl end
+	return ""
 end
 
 -- Format a stored timestamp in the viewer's local time (epoch number, or legacy string).
@@ -123,6 +130,17 @@ local function noteUnit(unit)
 	end
 end
 
+-- At death, grab levels of everyone currently nameplated/targeted — catches the
+-- ganker still standing on your corpse even if you never saw them before.
+local function captureNearbyLevels()
+	if C_NamePlate and C_NamePlate.GetNamePlates then
+		for _, p in ipairs(C_NamePlate.GetNamePlates()) do
+			if p.namePlateUnitToken then noteUnit(p.namePlateUnitToken) end
+		end
+	end
+	noteUnit("target"); noteUnit("mouseover")
+end
+
 -- Alert when a listed ganker comes into range (nameplate/target/mouseover).
 local alertSeen = {} -- name -> last alert time, throttled to 1/60s
 local function alertIfGanker(unit)
@@ -162,12 +180,12 @@ local function handleKill(name)
 	local repeated = db.pending[name] ~= nil
 
 	if db.gankers[name] then -- already a known ganker: just tally
-		record(name, GetRealZoneText(), me)
+		record(name, GetRealZoneText(), me, lvl)
 		send(name)
 		print("|cffff4040GankList:|r " .. name .. " ganked you again (x" .. db.gankers[name].count .. ")")
 	elseif outmatched or repeated then -- it's a gank: add to the list
 		db.pending[name] = nil
-		record(name, GetRealZoneText(), me)
+		record(name, GetRealZoneText(), me, lvl)
 		send(name)
 		local why = repeated and "killed you again — camping your respawns" or "ganked you (way above your level)"
 		print("|cffff4040GankList:|r " .. name .. " " .. why .. ". Added. /gank forgive " .. name .. " to undo")
@@ -201,6 +219,7 @@ f:SetScript("OnEvent", function(_, event, ...)
 
 	elseif event == "PLAYER_DEAD" then
 		if lastHit and (GetTime() - lastHit.t) <= DEATH_WINDOW then
+			captureNearbyLevels() -- read the killer's level off their corpse-camping nameplate
 			handleKill(lastHit.name)
 			lastHit = nil
 		end
@@ -301,7 +320,8 @@ function refreshUI()
 
 		if e.kind == "ganker" then
 			local r = e.r
-			row.name:SetText("|cffff6060" .. r.name .. "|r")
+			local lvl = fmtLvl(r.g.level or levelSeen[r.name])
+			row.name:SetText("|cffff6060" .. r.name .. "|r" .. (lvl ~= "" and "  |cff9090ff" .. lvl .. "|r" or ""))
 			row.info:SetText((r.g.zone or "?") .. "  ·  " .. fmtTime(r.g.last))
 			row.count:SetText("x" .. r.g.count)
 			row.del:Show()
@@ -312,7 +332,8 @@ function refreshUI()
 			end)
 		else -- suspect
 			local r = e.r
-			row.name:SetText("|cffffa050" .. r.name .. "|r")
+			local lvl = fmtLvl(levelSeen[r.name])
+			row.name:SetText("|cffffa050" .. r.name .. "|r" .. (lvl ~= "" and "  |cff9090ff" .. lvl .. "|r" or ""))
 			row.info:SetText("killed you once  ·  " .. fmtTime(r.t))
 			row.count:SetText("")
 			row.del:Show()
