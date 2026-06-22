@@ -30,17 +30,14 @@ you**. You can only ever remove (forgive) someone afterward.
 
 | Command | What it does |
 |---|---|
-| `/gank` | open the window |
-| `/gank forgive Name` | remove a player (made amends) |
-| `/gank pending` | show suspects (killed you once, not yet listed) |
-| `/gank list` | print the list to chat |
-| `/gank party` | announce the list to party/raid chat |
-| `/gank friend add Name` | sync with a friend |
-| `/gank friend remove Name` | stop syncing with them |
-| `/gank friend reset` | clear all sync friends |
-| `/gank friend` | show your sync friends |
+| `/gank` | open the window (Wanted + Suspects tabs) |
+| `/gank forgive Name` | remove a ganker (or target them and omit the name) |
+| `/gank friend Name` | sync with a friend (no name = list them, `reset` = clear all) |
+| `/gank unfriend Name` | stop syncing with a friend |
+| `/gank ping` | test the sync link with your friends |
 | `/gank sync` | push your list to friends now |
-| `/gank autoaccept on\|off` | auto-accept friends' forgive requests |
+| `/gank party` | announce the list to party/raid chat |
+| `/gank autoaccept` | toggle auto-accept of friends' forgives |
 | `/gank check` | reload-safe diagnostic |
 | `/gank help` | show all commands |
 
@@ -61,7 +58,7 @@ target / mouseover).
 Add each other as friends on both PCs:
 
 ```
-/gank friend add FriendName
+/gank friend FriendName
 ```
 
 New gankers then sync automatically (and on login). Sync uses addon whispers, so

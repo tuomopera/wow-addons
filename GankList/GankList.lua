@@ -473,34 +473,34 @@ SlashCmdList.GANK = function(msg)
 		end
 		print("|cffff4040GankList|r |cff808080(gankers are added automatically when they kill you)|r")
 		line("/gank", "open the window")
-		line("/gank forgive Name", "remove someone (made amends)")
-		line("/gank pending", "show suspects (killed you once)")
-		line("/gank list", "show the list in chat")
-		line("/gank party", "announce the list to party/raid")
-		line("/gank friend add Name", "sync with a friend")
-		line("/gank friend", "show your sync friends")
-		line("/gank friend reset", "clear all sync friends")
-		line("/gank ping", "test the sync link with your friends")
+		line("/gank forgive Name", "remove a ganker")
+		line("/gank friend Name", "sync with a friend  (no name = list, 'reset' = clear)")
+		line("/gank unfriend Name", "stop syncing with a friend")
+		line("/gank ping", "test the sync link")
 		line("/gank sync", "push your list to friends now")
-		line("/gank autoaccept on|off", "auto-accept friends' forgives")
+		line("/gank party", "announce the list to party/raid")
+		line("/gank autoaccept", "toggle auto-accept of forgives")
 		line("/gank check", "reload-safe diagnostic")
 		return
 	end
 
 	if cmd == "friend" or cmd == "partner" then -- "partner" kept as a silent alias
-		local sub, who = arg:match("^(%S*)%s*(.-)$")
-		if sub == "add" and who ~= "" then
-			table.insert(db.partners, who)
-			print("|cffff4040GankList:|r syncing with " .. who)
-		elseif sub == "remove" and who ~= "" then
-			for i, p in ipairs(db.partners) do if p == who then table.remove(db.partners, i) break end end
-			print("|cffff4040GankList:|r removed friend " .. who)
-		elseif sub == "reset" then
+		local name = arg:gsub('"', ""):gsub("^%s+", ""):gsub("%s+$", "")
+		if name == "" then
+			print("|cffff4040GankList:|r friends: " .. (#db.partners > 0 and table.concat(db.partners, ", ") or "(none)"))
+		elseif name:lower() == "reset" then
 			wipe(db.partners)
 			print("|cffff4040GankList:|r cleared all sync friends")
 		else
-			print("|cffff4040GankList:|r friends: " .. (#db.partners > 0 and table.concat(db.partners, ", ") or "(none)"))
+			for _, p in ipairs(db.partners) do if p == name then print("|cffff4040GankList:|r already syncing with " .. name) return end end
+			table.insert(db.partners, name)
+			print("|cffff4040GankList:|r syncing with " .. name)
 		end
+
+	elseif cmd == "unfriend" then
+		if arg == "" then print("|cffff4040GankList:|r /gank unfriend <name>") return end
+		for i, p in ipairs(db.partners) do if p == arg then table.remove(db.partners, i) break end end
+		print("|cffff4040GankList:|r stopped syncing with " .. arg)
 
 	elseif cmd == "check" then
 		local function ok(b) return b and "|cff40ff40OK|r" or "|cffff4040FAIL|r" end
@@ -515,12 +515,6 @@ SlashCmdList.GANK = function(msg)
 		print("  addon prefix ready ..... " .. ok(registered) .. (registered and "" or " (re-registered now)"))
 		print("  friends configured .... " .. ok(#db.partners > 0) .. "  (" .. (#db.partners > 0 and table.concat(db.partners, ", ") or "none") .. ")")
 		print("  combat-log tracking .... " .. ok(f:IsEventRegistered("COMBAT_LOG_EVENT_UNFILTERED")))
-
-	elseif cmd == "pending" then
-		print("|cffff8040GankList — suspects (one kill so far):|r")
-		local any = false
-		for n in pairs(db.pending) do print("  " .. n); any = true end
-		if not any then print("  (none)") end
 
 	elseif cmd == "autoaccept" then
 		if arg == "on" then db.autoAccept = true elseif arg == "off" then db.autoAccept = false
@@ -544,18 +538,6 @@ SlashCmdList.GANK = function(msg)
 		sendRemove(name) -- ask partners to forgive too
 		if refreshUI then refreshUI() end
 		print("|cffff4040GankList:|r forgave " .. name)
-
-	elseif cmd == "list" then
-		local rows = {}
-		for name, g in pairs(db.gankers) do
-			table.insert(rows, { name = name, g = g })
-		end
-		table.sort(rows, function(a, b) return a.g.count > b.g.count end)
-		print("|cffff4040GankList — your enemies:|r")
-		for _, r in ipairs(rows) do
-			print(("  %s  x%d  (%s, %s)"):format(r.name, r.g.count, r.g.zone or "?", fmtTime(r.g.last)))
-		end
-		if #rows == 0 then print("  (clean record so far)") end
 
 	elseif cmd == "party" then
 		local rows = {}
