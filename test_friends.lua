@@ -67,4 +67,31 @@ for _,p in ipairs(GankListDB.partners) do assert(p~="Carol","FREQ must not auto-
 popup=nil; clear(); rx("FREQ", "Alice")
 assert(popup==nil and sentTo("FACC","Alice"), "FREQ from existing partner should re-confirm silently")
 
-io.write("ALL FRIEND-REQUEST TESTS PASSED\n")
+-- ---- blacklist (Alice is a partner from the steps above) -----------------
+-- 6. Add a same-faction jerk with a note via slash -> stored + pushed to partner.
+clear(); slash("black Ninja stole my tag")
+assert(GankListDB.blacklist["Ninja"], "blacklist add failed")
+assert(GankListDB.blacklist["Ninja"].note == "stole my tag", "note not stored: "..tostring(GankListDB.blacklist["Ninja"].note))
+assert(sentTo("B","Alice"), "blacklist entry not synced to partner")
+
+-- 7. SECURITY: a received note is stripped of | injection and length-capped.
+rx("B\tJerk\tbad|cffff0000guy|Hitem\tAlice\t1000", "Alice")
+assert(GankListDB.blacklist["Jerk"], "received blacklist entry missing")
+assert(not GankListDB.blacklist["Jerk"].note:find("|"), "note must not contain pipe escapes")
+
+-- 8. SECURITY: blacklist data from a non-partner is dropped at the gate.
+rx("B\tFromStranger\twhatever\tStranger\t1000", "Stranger")
+assert(not GankListDB.blacklist["FromStranger"], "non-partner blacklist must be ignored")
+
+-- 9. Older timestamp does not overwrite a newer note; newer one does.
+GankListDB.blacklist["Jerk"] = { note = "newer", by = "me", t = 5000 }
+rx("B\tJerk\tolder\tAlice\t1000", "Alice")  -- older t
+assert(GankListDB.blacklist["Jerk"].note == "newer", "older sync must not overwrite")
+rx("B\tJerk\tfreshest\tAlice\t9000", "Alice") -- newer t
+assert(GankListDB.blacklist["Jerk"].note == "freshest", "newer sync should update")
+
+-- 10. BR removes a blacklisted player.
+rx("BR\tJerk", "Alice")
+assert(not GankListDB.blacklist["Jerk"], "BR should remove the entry")
+
+io.write("ALL TESTS PASSED (friend requests + blacklist)\n")

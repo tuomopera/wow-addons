@@ -15,6 +15,7 @@ local function ensureDB()
 	GankListDB.gankers = GankListDB.gankers or {}   -- [name] = { count, last, zone, by }
 	GankListDB.partners = GankListDB.partners or {}  -- confirmed two-way sync friends (accepted)
 	GankListDB.outReq = GankListDB.outReq or {}      -- friend requests we sent, awaiting their accept
+	GankListDB.blacklist = GankListDB.blacklist or {} -- [name] = { note, by, t } same-faction jerks
 	GankListDB.pending = GankListDB.pending or {}    -- [name] = epoch of first kill (not yet a confirmed ganker)
 	return GankListDB
 end
@@ -82,8 +83,21 @@ local function send(name, only)
 	end
 end
 
-local function sendAll(only)
+-- sendBlack(name[, only]) - push one blacklisted same-faction player to friends.
+local function sendBlack(name, only)
+	local b = ensureDB().blacklist[name]
+	if not b then return end
+	local payload = table.concat({ "B", name, b.note or "", b.by or me, b.t or time() }, "\t")
+	if only then
+		tx(payload, only)
+	else
+		for _, partner in ipairs(ensureDB().partners) do tx(payload, partner) end
+	end
+end
+
+local function sendAll(only) -- push the whole shared list (gankers + blacklist) to friends
 	for name in pairs(ensureDB().gankers) do send(name, only) end
+	for name in pairs(ensureDB().blacklist) do sendBlack(name, only) end
 end
 
 -- Silent catch-up handshake: on login we greet each friend with "HI"; whoever is
@@ -101,6 +115,24 @@ end
 local function sendRemove(name)
 	local payload = "R\t" .. name
 	for _, partner in ipairs(ensureDB().partners) do tx(payload, partner) end
+end
+
+-- Blacklist: same-faction players you can't gank but want flagged, with a note.
+local function addBlacklist(name, note)
+	name = cleanName(name)
+	if not name then return end
+	note = tostring(note or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", ""):sub(1, 120)
+	ensureDB().blacklist[name] = { note = note, by = me, t = time() }
+	sendBlack(name)
+	if refreshUI then refreshUI() end
+	print("|cffff4040GankList:|r blacklisted " .. name .. (note ~= "" and " (" .. note .. ")" or ""))
+end
+
+local function removeBlacklist(name)
+	ensureDB().blacklist[name] = nil
+	local payload = "BR\t" .. name
+	for _, partner in ipairs(ensureDB().partners) do tx(payload, partner) end -- ask partners to drop it too
+	if refreshUI then refreshUI() end
 end
 
 -- ---- friend requests -----------------------------------------------------
@@ -181,6 +213,26 @@ local function onReceive(payload, sender)
 		return
 	elseif kind == "PONG" then
 		print("|cff40ff40GankList:|r " .. (sender or "a friend") .. " got your ping - sync works")
+		return
+	elseif kind == "B" then -- a friend blacklisted a same-faction player
+		local _, bname, bnote, bby, bt = strsplit("\t", payload)
+		bname = cleanName(bname)
+		if not bname then return end
+		bnote = (bnote or ""):gsub("|", ""):sub(1, 120) -- strip injection, cap length
+		bby = bby and bby:gsub("|", ""):sub(1, 40) or nil
+		bt = math.min(tonumber(bt) or time(), time() + 86400)
+		local db = ensureDB()
+		local b = db.blacklist[bname]
+		if not b or bt > (b.t or 0) then db.blacklist[bname] = { note = bnote, by = bby, t = bt } end
+		if refreshUI then refreshUI() end
+		return
+	elseif kind == "BR" then -- a friend removed someone from their blacklist
+		local _, bname = strsplit("\t", payload)
+		bname = cleanName(bname)
+		if bname and ensureDB().blacklist[bname] then
+			ensureDB().blacklist[bname] = nil
+			if refreshUI then refreshUI() end
+		end
 		return
 	end
 
@@ -396,13 +448,27 @@ StaticPopupDialogs["GANKLIST_FRIENDREQ"] = {
 	OnAccept = function(self, data) acceptFriend(data.name) end,
 }
 
+StaticPopupDialogs["GANKLIST_BLNOTE"] = {
+	text = "Why is %s on the blacklist?",
+	button1 = SAVE or "Save", button2 = CANCEL, hasEditBox = true, maxLetters = 120,
+	timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
+	OnShow = function(self, data) self.editBox:SetText((data and data.note) or "") end,
+	OnAccept = function(self, data) addBlacklist(data.name, self.editBox:GetText()) end,
+	EditBoxOnEnterPressed = function(self)
+		local parent = self:GetParent()
+		addBlacklist(parent.data.name, self:GetText())
+		parent:Hide()
+	end,
+	EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+}
+
 function refreshUI()
 	if not UI or not UI:IsShown() then return end
 	local db = ensureDB()
 	if UI.auto then UI.auto:SetChecked(db.autoAccept and true or false) end
 
-	-- Split into the three tabs.
-	local gks, sus, frs = {}, {}, {}
+	-- Split into the four tabs.
+	local gks, sus, frs, bl = {}, {}, {}, {}
 	for name, g in pairs(db.gankers) do gks[#gks + 1] = { name = name, g = g } end
 	for name, p in pairs(db.pending) do
 		local t = type(p) == "table" and p.t or tonumber(p) or 0
@@ -410,32 +476,39 @@ function refreshUI()
 	end
 	for _, p in ipairs(db.partners) do frs[#frs + 1] = { name = p, pending = false } end
 	for _, p in ipairs(db.outReq) do frs[#frs + 1] = { name = p, pending = true } end
+	for name, b in pairs(db.blacklist) do bl[#bl + 1] = { name = name, b = b } end
 	table.sort(gks, function(a, b) return a.g.count > b.g.count end)
 	table.sort(sus, function(a, b) return a.t > b.t end)
+	table.sort(bl, function(a, b) return a.name < b.name end)
 
 	-- Reflect tab counts + which one is selected.
 	local tab = UI.tab or "wanted"
 	UI.tabWanted:SetText("Wanted (" .. #gks .. ")")
 	UI.tabSuspect:SetText("Suspects (" .. #sus .. ")")
 	UI.tabFriends:SetText("Friends (" .. #frs .. ")")
+	UI.tabBlack:SetText("Blacklist (" .. #bl .. ")")
 	UI.tabWanted:SetButtonState(tab == "wanted" and "PUSHED" or "NORMAL")
 	UI.tabSuspect:SetButtonState(tab == "suspects" and "PUSHED" or "NORMAL")
 	UI.tabFriends:SetButtonState(tab == "friends" and "PUSHED" or "NORMAL")
-	UI.setTitle(tab == "wanted" and "Wanted" or tab == "suspects" and "Suspects" or "Friends")
+	UI.tabBlack:SetButtonState(tab == "blacklist" and "PUSHED" or "NORMAL")
+	UI.setTitle(tab == "wanted" and "Wanted" or tab == "suspects" and "Suspects" or tab == "friends" and "Friends" or "Blacklist")
 
-	-- Friends tab swaps the bottom controls (add-friend box) in for the ganker ones.
-	UI.friendAdd:SetShown(tab == "friends")
-	UI.friendBox:SetShown(tab == "friends")
-	UI.addTgt:SetShown(tab ~= "friends")
-	UI.sync:SetShown(tab ~= "friends")
+	-- Friends/Blacklist tabs swap their own add-box into the bottom bar.
+	local onF, onB = tab == "friends", tab == "blacklist"
+	UI.friendAdd:SetShown(onF); UI.friendBox:SetShown(onF)
+	UI.blackAdd:SetShown(onB); UI.blackBox:SetShown(onB)
+	UI.addTgt:SetShown(not onF and not onB)
+	UI.sync:SetShown(not onF and not onB)
 
 	local entries = {}
 	if tab == "wanted" then
 		for _, r in ipairs(gks) do entries[#entries + 1] = { kind = "ganker", r = r } end
 	elseif tab == "suspects" then
 		for _, r in ipairs(sus) do entries[#entries + 1] = { kind = "suspect", r = r } end
-	else
+	elseif tab == "friends" then
 		for _, r in ipairs(frs) do entries[#entries + 1] = { kind = "friend", r = r } end
+	else
+		for _, r in ipairs(bl) do entries[#entries + 1] = { kind = "black", r = r } end
 	end
 
 	for _, row in ipairs(rowPool) do row:Hide() end
@@ -453,6 +526,7 @@ function refreshUI()
 			row.name:SetPoint("LEFT", 6, 7)
 			row.info = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 			row.info:SetPoint("LEFT", 6, -8)
+			row.info:SetWidth(280); row.info:SetJustifyH("LEFT"); row.info:SetWordWrap(false) -- truncate long notes
 			row.count = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
 			row.count:SetPoint("RIGHT", -34, 0)
 			row.del = CreateFrame("Button", nil, row, "UIPanelCloseButton")
@@ -507,7 +581,7 @@ function refreshUI()
 				refreshUI()
 				print("|cffff4040GankList:|r " .. r.name .. " moved to Wanted")
 			end)
-		else -- friend
+		elseif e.kind == "friend" then
 			local r = e.r
 			row.name:SetText((r.pending and "|cffffd100" or "|cff40ff40") .. r.name .. "|r")
 			row.info:SetText(r.pending and "|cffaaaaaarequest sent - waiting for accept|r" or "|cff80c0ffsynced|r")
@@ -521,11 +595,24 @@ function refreshUI()
 				tx("PING", r.name)
 				print("|cffff8040GankList:|r pinged " .. r.name .. " - waiting for reply...")
 			end)
+		else -- blacklisted same-faction player
+			local r = e.r
+			row.name:SetText("|cffffd000" .. r.name .. "|r")
+			row.info:SetText(r.b.note ~= "" and "|cffcccccc" .. r.b.note .. "|r" or "|cff808080(no note - click Note to add)|r")
+			row.count:SetText("")
+			row.del:Show(); row.promote:Show()
+			row.promote:SetText("Note")
+			row.del:SetScript("OnClick", function()
+				removeBlacklist(r.name)
+			end)
+			row.promote:SetScript("OnClick", function() -- edit the reason
+				StaticPopup_Show("GANKLIST_BLNOTE", r.name, nil, { name = r.name, note = r.b.note })
+			end)
 		end
 		row:Show()
 	end
 	content:SetHeight(math.max(#entries * 36 + 4, 1))
-	UI.empty:SetText(tab == "wanted" and "No wanted enemies yet." or tab == "suspects" and "No suspects right now." or "No sync friends yet. Add one below.")
+	UI.empty:SetText(tab == "wanted" and "No wanted enemies yet." or tab == "suspects" and "No suspects right now." or tab == "friends" and "No sync friends yet. Add one below." or "No blacklisted players. Add one below.")
 	UI.empty:SetShown(#entries == 0)
 end
 
@@ -536,7 +623,7 @@ local function buildUI()
 	if not ok or not frame then
 		frame = CreateFrame("Frame", "GankListFrame", UIParent, "BasicFrameTemplateWithInset")
 	end
-	frame:SetSize(360, 420)
+	frame:SetSize(470, 420) -- wide enough for four tabs
 	frame:SetPoint("CENTER")
 	frame:SetMovable(true)
 	frame:EnableMouse(true)
@@ -587,27 +674,29 @@ local function buildUI()
 		if frame.TitleText then frame.TitleText:SetPoint("LEFT", icon, "RIGHT", 4, 0) end
 	end
 
-	-- Wanted / Suspects / Friends tabs (plain buttons styled as tabs; works on every flavor).
+	-- Wanted / Suspects / Friends / Blacklist tabs (plain buttons styled as tabs; works on every flavor).
 	frame.tab = "wanted"
 	local function makeTab(label, x)
 		local t = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-		t:SetSize(112, 22)
+		t:SetSize(110, 22)
 		t:SetPoint("TOPLEFT", x, -56)
 		t:SetText(label)
 		return t
 	end
 	frame.tabWanted = makeTab("Wanted", 8)
-	frame.tabSuspect = makeTab("Suspects", 124)
-	frame.tabFriends = makeTab("Friends", 240)
+	frame.tabSuspect = makeTab("Suspects", 122)
+	frame.tabFriends = makeTab("Friends", 236)
+	frame.tabBlack = makeTab("Blacklist", 350)
 	frame.tabWanted:SetScript("OnClick", function() frame.tab = "wanted"; refreshUI() end)
 	frame.tabSuspect:SetScript("OnClick", function() frame.tab = "suspects"; refreshUI() end)
 	frame.tabFriends:SetScript("OnClick", function() frame.tab = "friends"; refreshUI() end)
+	frame.tabBlack:SetScript("OnClick", function() frame.tab = "blacklist"; refreshUI() end)
 
 	local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
 	scroll:SetPoint("TOPLEFT", 10, -84) -- below the tab row
 	scroll:SetPoint("BOTTOMRIGHT", -30, 60) -- leave room for the auto-accept checkbox + buttons
 	local content = CreateFrame("Frame", nil, scroll)
-	content:SetSize(310, 1)
+	content:SetSize(420, 1)
 	scroll:SetScrollChild(content)
 	frame.content = content
 
@@ -671,6 +760,27 @@ local function buildUI()
 	frame.friendAdd, frame.friendBox = addF, box
 	addF:Hide(); box:Hide() -- shown only on the Friends tab (refreshUI toggles)
 
+	-- Blacklist tab: type a name (or target one) + Add, then a popup asks for the reason.
+	local addB = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+	addB:SetSize(90, 22)
+	addB:SetPoint("BOTTOMRIGHT", -28, 8)
+	addB:SetText("Blacklist")
+	local bbox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+	bbox:SetSize(170, 20)
+	bbox:SetPoint("BOTTOMLEFT", 36, 9)
+	bbox:SetAutoFocus(false)
+	local function submitBlack()
+		local n = bbox:GetText():gsub('"', ""):gsub("^%s+", ""):gsub("%s+$", "")
+		if n == "" and UnitExists("target") and UnitIsPlayer("target") then n = UnitName("target") end
+		n = n and cleanName(n)
+		if n then bbox:SetText(""); bbox:ClearFocus(); StaticPopup_Show("GANKLIST_BLNOTE", n, nil, { name = n }) end
+	end
+	addB:SetScript("OnClick", submitBlack)
+	bbox:SetScript("OnEnterPressed", submitBlack)
+	bbox:SetScript("OnEscapePressed", bbox.ClearFocus)
+	frame.blackAdd, frame.blackBox = addB, bbox
+	addB:Hide(); bbox:Hide() -- shown only on the Blacklist tab
+
 	tinsert(UISpecialFrames, "GankListFrame") -- close with Escape
 	frame:Hide() -- templates start shown; hide so the first /gank toggles it open
 	return frame
@@ -696,6 +806,7 @@ SlashCmdList.GANK = function(msg)
 		line("/gank", "open the window")
 		line("/gank add Name", "manually add a ganker")
 		line("/gank del Name", "remove a ganker")
+		line("/gank black Name reason", "blacklist a same-faction jerk (or target them)")
 		line("/gank friend Name", "send a sync request  (no name = list, 'reset' = clear)")
 		line("/gank unfriend Name", "stop syncing with a friend")
 		line("/gank ping", "test the sync link")
@@ -723,6 +834,12 @@ SlashCmdList.GANK = function(msg)
 		if arg == "" then print("|cffff4040GankList:|r /gank unfriend <name>") return end
 		removeFriend(arg)
 		print("|cffff4040GankList:|r stopped syncing with " .. arg)
+
+	elseif cmd == "black" or cmd == "blacklist" or cmd == "bl" then
+		local name, note = arg:match("^(%S+)%s*(.-)$")
+		name = (name ~= "" and name) or (UnitExists("target") and UnitIsPlayer("target") and UnitName("target"))
+		if not name then print("|cffff4040GankList:|r /gank black <name> [reason]  (or target them first)") return end
+		addBlacklist(name, note)
 
 	elseif cmd == "check" then
 		local function ok(b) return b and "|cff40ff40OK|r" or "|cffff4040FAIL|r" end
