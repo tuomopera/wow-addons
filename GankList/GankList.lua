@@ -289,6 +289,7 @@ f:SetScript("OnEvent", function(_, event, ...)
 
 	elseif event == "PLAYER_TARGET_CHANGED" then
 		noteUnit("target"); alertIfGanker("target")
+		if UI and UI.updateAddBtn then UI.updateAddBtn() end
 
 	elseif event == "CHAT_MSG_ADDON" then
 		local prefix, msg, _, sender = ...
@@ -519,10 +520,27 @@ local function buildUI()
 	auto:SetScript("OnClick", function(self) ensureDB().autoAccept = self:GetChecked() and true or false end)
 	frame.auto = auto
 
-	-- No manual add: gankers only get on the list by killing you. Just a sync button.
+	-- Add current target to Wanted (same as /gank add with no name).
+	local addTgt = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+	addTgt:SetSize(150, 22)
+	addTgt:SetPoint("BOTTOMLEFT", 28, 8)
+	addTgt:SetText("Add Target")
+	addTgt:SetScript("OnClick", function()
+		local name = UnitExists("target") and UnitIsPlayer("target") and cleanName(UnitName("target"))
+		if not name then return end
+		record(name, GetRealZoneText(), me, levelSeen[name])
+		send(name)
+		refreshUI()
+		print("|cffff4040GankList:|r added " .. name)
+	end)
+	frame.addTgt = addTgt
+	function frame.updateAddBtn()
+		addTgt:SetEnabled(UnitExists("target") and UnitIsPlayer("target") and true or false)
+	end
+
 	local sync = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 	sync:SetSize(150, 22)
-	sync:SetPoint("BOTTOM", 0, 8)
+	sync:SetPoint("BOTTOMRIGHT", -28, 8)
 	sync:SetText("Sync Partners")
 	sync:SetScript("OnClick", function() sendAll(); print("|cffff4040GankList:|r pushed list to friends") end)
 
@@ -533,7 +551,7 @@ end
 
 local function toggleUI()
 	if not UI then UI = buildUI() end
-	if UI:IsShown() then UI:Hide() else UI:Show(); refreshUI() end
+	if UI:IsShown() then UI:Hide() else UI:Show(); refreshUI(); UI.updateAddBtn() end
 end
 
 -- ---- slash ---------------------------------------------------------------
