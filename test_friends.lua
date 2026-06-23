@@ -94,4 +94,28 @@ assert(GankListDB.blacklist["Jerk"].note == "freshest", "newer sync should updat
 rx("BR\tJerk", "Alice")
 assert(not GankListDB.blacklist["Jerk"], "BR should remove the entry")
 
-io.write("ALL TESTS PASSED (friend requests + blacklist)\n")
+-- ---- kill handling: Wanted player must NOT also be logged as a Suspect -----
+onEvent(eventFrame, "PLAYER_LOGIN") -- sets playerGUID = "G"
+-- real-ish combat-log flags so the addon's bit.band sees player + hostile
+COMBATLOG_OBJECT_TYPE_PLAYER = 0x400; COMBATLOG_OBJECT_REACTION_HOSTILE = 0x40
+bit = { band = function(a, m) return (math.floor(a / m) % 2 == 1) and m or 0 end }
+local cl
+CombatLogGetCurrentEventInfo = function() return unpack(cl) end
+local function gankedBy(srcName) -- simulate: hostile player damages me, then I die
+  cl = { 0, "SWING_DAMAGE", false, "E", srcName, 0x400 + 0x40, 0, "G", "Me" }
+  onEvent(eventFrame, "COMBAT_LOG_EVENT_UNFILTERED")
+  onEvent(eventFrame, "PLAYER_DEAD"); pump()
+end
+
+-- 11. Killer already on Wanted -> bump that count, NOT added to Suspects.
+GankListDB.gankers["Hunter"] = { count = 2, by = "me", last = 0 }
+GankListDB.pending["Hunter"] = nil
+gankedBy("Hunter")
+assert(GankListDB.gankers["Hunter"].count == 3, "Wanted count should bump on repeat gank")
+assert(GankListDB.pending["Hunter"] == nil, "Wanted player must NOT be logged as a suspect")
+
+-- 12. Killer not on Wanted -> logged as a Suspect as before.
+gankedBy("Random")
+assert(GankListDB.pending["Random"], "unknown killer should be logged as a suspect")
+
+io.write("ALL TESTS PASSED (friend requests + blacklist + kill handling)\n")

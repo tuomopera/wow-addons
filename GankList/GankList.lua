@@ -354,13 +354,17 @@ local function handleKill(name)
 		if t < time() - SUSPECT_TTL then db.pending[n] = nil end
 	end
 
-	local p = db.pending[name]
-	if type(p) ~= "table" then p = { t = 0, count = tonumber(p) and 1 or 0 }; db.pending[name] = p end
-	p.t = time()
-	p.count = (p.count or 0) + 1
-	if db.gankers[name] then -- already on Wanted: just note the repeat in chat
-		print("|cffff4040GankList:|r " .. name .. " (Wanted) killed you again")
+	local g = db.gankers[name]
+	if g then -- already on Wanted: bump their count, don't also log a suspect
+		g.count = g.count + 1
+		g.last = time()
+		send(name) -- push the higher count to partners
+		print("|cffff4040GankList:|r " .. name .. " (Wanted) killed you again (x" .. g.count .. ")")
 	else
+		local p = db.pending[name]
+		if type(p) ~= "table" then p = { t = 0, count = tonumber(p) and 1 or 0 }; db.pending[name] = p end
+		p.t = time()
+		p.count = (p.count or 0) + 1
 		print("|cffff8040GankList:|r " .. name .. " killed you - logged as a suspect. /gank add " .. name .. " to list them")
 	end
 	if refreshUI then refreshUI() end
