@@ -176,11 +176,11 @@ local function onReceive(payload, sender)
 		end
 		return
 	elseif kind == "PING" then -- connectivity test: reply so the sender knows it round-tripped
-		print("|cff40ff40GankList:|r ping from " .. (sender or "?") .. " - you two are synced \226\156\147")
+		print("|cff40ff40GankList:|r ping from " .. (sender or "?") .. " - you two are synced")
 		for _, p in ipairs(ensureDB().partners) do tx("PONG", p) end
 		return
 	elseif kind == "PONG" then
-		print("|cff40ff40GankList:|r " .. (sender or "a friend") .. " got your ping - sync works \226\156\147")
+		print("|cff40ff40GankList:|r " .. (sender or "a friend") .. " got your ping - sync works")
 		return
 	end
 
@@ -481,7 +481,7 @@ function refreshUI()
 				row.info:SetText((r.g.zone or "?") .. "  ·  " .. fmtTime(r.g.last))
 			end
 			local rev = r.g.revenge or 0
-			row.count:SetText("x" .. r.g.count .. (rev > 0 and "  |cff60ff60\226\154\148" .. rev .. "|r" or ""))
+			row.count:SetText("x" .. r.g.count .. (rev > 0 and "  |cff60ff60+" .. rev .. "|r" or ""))
 			row.del:Show(); row.promote:Hide()
 			row.del:SetScript("OnClick", function()
 				db.gankers[r.name] = nil
