@@ -537,6 +537,7 @@ local function buildUI()
 	function frame.updateAddBtn()
 		addTgt:SetEnabled(UnitExists("target") and UnitIsPlayer("target") and true or false)
 	end
+	frame:HookScript("OnShow", frame.updateAddBtn) -- refresh clickable state every time the window opens
 
 	local sync = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
 	sync:SetSize(150, 22)
@@ -551,7 +552,7 @@ end
 
 local function toggleUI()
 	if not UI then UI = buildUI() end
-	if UI:IsShown() then UI:Hide() else UI:Show(); refreshUI(); UI.updateAddBtn() end
+	if UI:IsShown() then UI:Hide() else UI:Show(); refreshUI() end
 end
 
 -- ---- slash ---------------------------------------------------------------
