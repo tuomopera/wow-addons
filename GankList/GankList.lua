@@ -8,6 +8,7 @@ local playerGUID -- set on login
 -- lastHit: most recent hostile-player damage taken { name=, t= }
 local lastHit = nil
 local refreshUI -- forward decl: used by event handler, defined in UI section below
+local UI -- forward decl: event handler updates the Add Target button; built lazily below
 
 local function ensureDB()
 	GankListDB = GankListDB or {}
@@ -308,7 +309,7 @@ f:SetScript("OnEvent", function(_, event, ...)
 end)
 
 -- ---- UI ------------------------------------------------------------------
-local UI, rowPool = nil, {}
+local rowPool = {}
 
 StaticPopupDialogs["GANKLIST_FORGIVE"] = {
 	text = "%s wants to forgive %s.\nRemove them from your list too?",
