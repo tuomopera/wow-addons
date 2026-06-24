@@ -104,11 +104,21 @@ end
 -- already online answers by pushing their whole list back. This closes the gap
 -- where you add a ganker while a friend is offline - they get it when they log in.
 local helloReply = {} -- friend -> last time we answered their HI (throttle)
+-- isOnline(name): true/false from the in-game friends list, or nil if they're
+-- not on it (Classic can't query arbitrary players, so nil = "send anyway").
+local function isOnline(name)
+	local info = C_FriendList.GetFriendInfoByName(name)
+	if info then return info.connected end
+	return nil
+end
 local function greetFriends()
+	C_FriendList.ShowFriends() -- nudge the roster to refresh so .connected is current
 	for _, p in ipairs(ensureDB().partners) do
-		tx("HI", p)
+		if isOnline(p) ~= false then -- online, or not on friends list (can't tell)
+			tx("HI", p)
+			sendAll(p) -- push our list to this friend (covers them being already online)
+		end
 	end
-	sendAll() -- also push our list outright (covers friends already online)
 end
 
 -- Broadcast a forgive (removal) request to partners.
@@ -344,15 +354,18 @@ end
 
 -- A player kill is only ever logged to the Suspects list (a kill log you review).
 -- Nothing is auto-added to Wanted; you promote real gankers yourself via /gank add.
-local SUSPECT_TTL = 7 * 86400 -- self-clean suspects after a week
+local SUSPECT_TTL = 3600 -- self-clean suspects after an hour
+local function pruneSuspects(db)
+	for n, p in pairs(db.pending) do
+		local t = type(p) == "table" and p.t or tonumber(p) or 0
+		if t < time() - SUSPECT_TTL then db.pending[n] = nil end
+	end
+end
 local function handleKill(name)
 	name = cleanName(name)
 	if not name then return end
 	local db = ensureDB()
-	for n, p in pairs(db.pending) do -- drop week-old suspects
-		local t = type(p) == "table" and p.t or tonumber(p) or 0
-		if t < time() - SUSPECT_TTL then db.pending[n] = nil end
-	end
+	pruneSuspects(db)
 
 	local g = db.gankers[name]
 	if g then -- already on Wanted: bump their count, don't also log a suspect
@@ -472,6 +485,7 @@ function refreshUI()
 	if UI.auto then UI.auto:SetChecked(db.autoAccept and true or false) end
 
 	-- Split into the four tabs.
+	pruneSuspects(db) -- expire hour-old suspects even with no fresh kills
 	local gks, sus, frs, bl = {}, {}, {}, {}
 	for name, g in pairs(db.gankers) do gks[#gks + 1] = { name = name, g = g } end
 	for name, p in pairs(db.pending) do
