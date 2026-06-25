@@ -16,7 +16,7 @@ local function ensureDB()
 	GankListDB.partners = GankListDB.partners or {}  -- confirmed two-way sync friends (accepted)
 	GankListDB.outReq = GankListDB.outReq or {}      -- friend requests we sent, awaiting their accept
 	GankListDB.blacklist = GankListDB.blacklist or {} -- [name] = { note, by, t } same-faction jerks
-	GankListDB.pending = GankListDB.pending or {}    -- [name] = epoch of first kill (not yet a confirmed ganker)
+	GankListDB.whitelist = GankListDB.whitelist or {} -- [name] = { note, by, t } same-faction friendlies
 	return GankListDB
 end
 
@@ -95,9 +95,22 @@ local function sendBlack(name, only)
 	end
 end
 
-local function sendAll(only) -- push the whole shared list (gankers + blacklist) to friends
+-- sendWhite(name[, only]) - push one whitelisted same-faction friendly to friends.
+local function sendWhite(name, only)
+	local w = ensureDB().whitelist[name]
+	if not w then return end
+	local payload = table.concat({ "W", name, w.note or "", w.by or me, w.t or time() }, "\t")
+	if only then
+		tx(payload, only)
+	else
+		for _, partner in ipairs(ensureDB().partners) do tx(payload, partner) end
+	end
+end
+
+local function sendAll(only) -- push the whole shared list (gankers + blacklist + whitelist) to friends
 	for name in pairs(ensureDB().gankers) do send(name, only) end
 	for name in pairs(ensureDB().blacklist) do sendBlack(name, only) end
+	for name in pairs(ensureDB().whitelist) do sendWhite(name, only) end
 end
 
 -- Silent catch-up handshake: on login we greet each friend with "HI"; whoever is
@@ -141,6 +154,24 @@ end
 local function removeBlacklist(name)
 	ensureDB().blacklist[name] = nil
 	local payload = "BR\t" .. name
+	for _, partner in ipairs(ensureDB().partners) do tx(payload, partner) end -- ask partners to drop it too
+	if refreshUI then refreshUI() end
+end
+
+-- Whitelist: same-faction players you vouch for, with a note. Mirror of blacklist.
+local function addWhitelist(name, note)
+	name = cleanName(name)
+	if not name then return end
+	note = tostring(note or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", ""):sub(1, 120)
+	ensureDB().whitelist[name] = { note = note, by = me, t = time() }
+	sendWhite(name)
+	if refreshUI then refreshUI() end
+	print("|cff40ff40GankList:|r whitelisted " .. name .. (note ~= "" and " (" .. note .. ")" or ""))
+end
+
+local function removeWhitelist(name)
+	ensureDB().whitelist[name] = nil
+	local payload = "WR\t" .. name
 	for _, partner in ipairs(ensureDB().partners) do tx(payload, partner) end -- ask partners to drop it too
 	if refreshUI then refreshUI() end
 end
@@ -241,6 +272,26 @@ local function onReceive(payload, sender)
 		bname = cleanName(bname)
 		if bname and ensureDB().blacklist[bname] then
 			ensureDB().blacklist[bname] = nil
+			if refreshUI then refreshUI() end
+		end
+		return
+	elseif kind == "W" then -- a friend whitelisted a same-faction friendly
+		local _, wname, wnote, wby, wt = strsplit("\t", payload)
+		wname = cleanName(wname)
+		if not wname then return end
+		wnote = (wnote or ""):gsub("|", ""):sub(1, 120) -- strip injection, cap length
+		wby = wby and wby:gsub("|", ""):sub(1, 40) or nil
+		wt = math.min(tonumber(wt) or time(), time() + 86400)
+		local db = ensureDB()
+		local w = db.whitelist[wname]
+		if not w or wt > (w.t or 0) then db.whitelist[wname] = { note = wnote, by = wby, t = wt } end
+		if refreshUI then refreshUI() end
+		return
+	elseif kind == "WR" then -- a friend removed someone from their whitelist
+		local _, wname = strsplit("\t", payload)
+		wname = cleanName(wname)
+		if wname and ensureDB().whitelist[wname] then
+			ensureDB().whitelist[wname] = nil
 			if refreshUI then refreshUI() end
 		end
 		return
@@ -352,35 +403,22 @@ local function noteRevenge(name)
 	UIErrorsFrame:AddMessage("Got even with " .. name .. "! (" .. g.revenge .. ")", 0.3, 1, 0.3, 1, 5)
 end
 
--- A player kill is only ever logged to the Suspects list (a kill log you review).
--- Nothing is auto-added to Wanted; you promote real gankers yourself via /gank add.
-local SUSPECT_TTL = 3600 -- self-clean suspects after an hour
-local function pruneSuspects(db)
-	for n, p in pairs(db.pending) do
-		local t = type(p) == "table" and p.t or tonumber(p) or 0
-		if t < time() - SUSPECT_TTL then db.pending[n] = nil end
-	end
-end
+-- A kill bumps an already-Wanted player's count; nothing is auto-added to Wanted.
+-- You add real gankers yourself via /gank add (or the Add Target button).
 local function handleKill(name)
 	name = cleanName(name)
 	if not name then return end
 	local db = ensureDB()
-	pruneSuspects(db)
-
 	local g = db.gankers[name]
-	if g then -- already on Wanted: bump their count, don't also log a suspect
+	if g then -- already on Wanted: bump their count
 		g.count = g.count + 1
 		g.last = time()
 		send(name) -- push the higher count to partners
 		print("|cffff4040GankList:|r " .. name .. " (Wanted) killed you again (x" .. g.count .. ")")
+		if refreshUI then refreshUI() end
 	else
-		local p = db.pending[name]
-		if type(p) ~= "table" then p = { t = 0, count = tonumber(p) and 1 or 0 }; db.pending[name] = p end
-		p.t = time()
-		p.count = (p.count or 0) + 1
-		print("|cffff8040GankList:|r " .. name .. " killed you - logged as a suspect. /gank add " .. name .. " to list them")
+		print("|cffff8040GankList:|r " .. name .. " killed you - /gank add " .. name .. " to list them")
 	end
-	if refreshUI then refreshUI() end
 end
 
 -- ---- events --------------------------------------------------------------
@@ -465,15 +503,17 @@ StaticPopupDialogs["GANKLIST_FRIENDREQ"] = {
 	OnAccept = function(self, data) acceptFriend(data.name) end,
 }
 
-StaticPopupDialogs["GANKLIST_BLNOTE"] = {
-	text = "Why is %s on the blacklist?",
+-- Note editor, shared by blacklist + whitelist. Caller passes the full prompt as
+-- the text arg and an add(name, note) function + current note in data.
+StaticPopupDialogs["GANKLIST_NOTE"] = {
+	text = "%s",
 	button1 = SAVE or "Save", button2 = CANCEL, hasEditBox = true, maxLetters = 120,
 	timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
 	OnShow = function(self, data) self.editBox:SetText((data and data.note) or "") end,
-	OnAccept = function(self, data) addBlacklist(data.name, self.editBox:GetText()) end,
+	OnAccept = function(self, data) data.add(data.name, self.editBox:GetText()) end,
 	EditBoxOnEnterPressed = function(self)
 		local parent = self:GetParent()
-		addBlacklist(parent.data.name, self:GetText())
+		parent.data.add(parent.data.name, self:GetText())
 		parent:Hide()
 	end,
 	EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
@@ -485,48 +525,45 @@ function refreshUI()
 	if UI.auto then UI.auto:SetChecked(db.autoAccept and true or false) end
 
 	-- Split into the four tabs.
-	pruneSuspects(db) -- expire hour-old suspects even with no fresh kills
-	local gks, sus, frs, bl = {}, {}, {}, {}
+	local gks, frs, bl, wl = {}, {}, {}, {}
 	for name, g in pairs(db.gankers) do gks[#gks + 1] = { name = name, g = g } end
-	for name, p in pairs(db.pending) do
-		local t = type(p) == "table" and p.t or tonumber(p) or 0
-		sus[#sus + 1] = { name = name, t = t, count = type(p) == "table" and p.count or 1 }
-	end
 	for _, p in ipairs(db.partners) do frs[#frs + 1] = { name = p, pending = false } end
 	for _, p in ipairs(db.outReq) do frs[#frs + 1] = { name = p, pending = true } end
 	for name, b in pairs(db.blacklist) do bl[#bl + 1] = { name = name, b = b } end
+	for name, w in pairs(db.whitelist) do wl[#wl + 1] = { name = name, b = w } end
 	table.sort(gks, function(a, b) return a.g.count > b.g.count end)
-	table.sort(sus, function(a, b) return a.t > b.t end)
 	table.sort(bl, function(a, b) return a.name < b.name end)
+	table.sort(wl, function(a, b) return a.name < b.name end)
 
 	-- Reflect tab counts + which one is selected.
 	local tab = UI.tab or "wanted"
 	UI.tabWanted:SetText("Wanted (" .. #gks .. ")")
-	UI.tabSuspect:SetText("Suspects (" .. #sus .. ")")
-	UI.tabFriends:SetText("Friends (" .. #frs .. ")")
 	UI.tabBlack:SetText("Blacklist (" .. #bl .. ")")
+	UI.tabFriends:SetText("Friends (" .. #frs .. ")")
+	UI.tabWhite:SetText("Whitelist (" .. #wl .. ")")
 	UI.tabWanted:SetButtonState(tab == "wanted" and "PUSHED" or "NORMAL")
-	UI.tabSuspect:SetButtonState(tab == "suspects" and "PUSHED" or "NORMAL")
-	UI.tabFriends:SetButtonState(tab == "friends" and "PUSHED" or "NORMAL")
 	UI.tabBlack:SetButtonState(tab == "blacklist" and "PUSHED" or "NORMAL")
-	UI.setTitle(tab == "wanted" and "Wanted" or tab == "suspects" and "Suspects" or tab == "friends" and "Friends" or "Blacklist")
+	UI.tabFriends:SetButtonState(tab == "friends" and "PUSHED" or "NORMAL")
+	UI.tabWhite:SetButtonState(tab == "whitelist" and "PUSHED" or "NORMAL")
+	UI.setTitle(tab == "wanted" and "Wanted" or tab == "blacklist" and "Blacklist" or tab == "friends" and "Friends" or "Whitelist")
 
-	-- Friends/Blacklist tabs swap their own add-box into the bottom bar.
-	local onF, onB = tab == "friends", tab == "blacklist"
+	-- Friends/Blacklist/Whitelist tabs swap their own add-box into the bottom bar.
+	local onF, onB, onW = tab == "friends", tab == "blacklist", tab == "whitelist"
 	UI.friendAdd:SetShown(onF); UI.friendBox:SetShown(onF)
 	UI.blackAdd:SetShown(onB); UI.blackBox:SetShown(onB)
-	UI.addTgt:SetShown(not onF and not onB)
-	UI.sync:SetShown(not onF and not onB)
+	UI.whiteAdd:SetShown(onW); UI.whiteBox:SetShown(onW)
+	UI.addTgt:SetShown(tab == "wanted")
+	UI.sync:SetShown(tab == "wanted")
 
 	local entries = {}
 	if tab == "wanted" then
 		for _, r in ipairs(gks) do entries[#entries + 1] = { kind = "ganker", r = r } end
-	elseif tab == "suspects" then
-		for _, r in ipairs(sus) do entries[#entries + 1] = { kind = "suspect", r = r } end
+	elseif tab == "blacklist" then
+		for _, r in ipairs(bl) do entries[#entries + 1] = { kind = "black", r = r } end
 	elseif tab == "friends" then
 		for _, r in ipairs(frs) do entries[#entries + 1] = { kind = "friend", r = r } end
 	else
-		for _, r in ipairs(bl) do entries[#entries + 1] = { kind = "black", r = r } end
+		for _, r in ipairs(wl) do entries[#entries + 1] = { kind = "white", r = r } end
 	end
 
 	for _, row in ipairs(rowPool) do row:Hide() end
@@ -580,24 +617,19 @@ function refreshUI()
 				sendRemove(r.name) -- ask partners to forgive too
 				refreshUI()
 			end)
-		elseif e.kind == "suspect" then
+		elseif e.kind == "white" then -- whitelisted same-faction friendly
 			local r = e.r
-			local lvl = fmtLvl(levelSeen[r.name])
-			row.name:SetText("|cffffa050" .. r.name .. "|r" .. (lvl ~= "" and "  |cff9090ff" .. lvl .. "|r" or ""))
-			row.info:SetText("killed you " .. (r.count > 1 and r.count .. "x" or "once") .. "  ·  " .. fmtTime(r.t))
+			row.name:SetText("|cff80ff80" .. r.name .. "|r")
+			row.info:SetText(r.b.note ~= "" and "|cffcccccc" .. r.b.note .. "|r" or "|cff808080(no note - click Note to add)|r")
 			row.count:SetText("")
 			row.del:Show(); row.promote:Show()
-			row.promote:SetText("\226\134\146 Wanted") -- "→ Wanted"
+			row.promote:SetText("Note")
 			row.del:SetScript("OnClick", function()
-				db.pending[r.name] = nil -- dismiss the suspect (local only, not synced)
-				refreshUI()
+				removeWhitelist(r.name)
 			end)
-			row.promote:SetScript("OnClick", function() -- upgrade suspect -> Wanted
-				record(r.name, GetRealZoneText(), me, levelSeen[r.name])
-				send(r.name)
-				db.pending[r.name] = nil
-				refreshUI()
-				print("|cffff4040GankList:|r " .. r.name .. " moved to Wanted")
+			row.promote:SetScript("OnClick", function() -- edit the note
+				StaticPopup_Show("GANKLIST_NOTE", "Why is " .. r.name .. " whitelisted?", nil,
+					{ name = r.name, note = r.b.note, add = addWhitelist })
 			end)
 		elseif e.kind == "friend" then
 			local r = e.r
@@ -624,13 +656,14 @@ function refreshUI()
 				removeBlacklist(r.name)
 			end)
 			row.promote:SetScript("OnClick", function() -- edit the reason
-				StaticPopup_Show("GANKLIST_BLNOTE", r.name, nil, { name = r.name, note = r.b.note })
+				StaticPopup_Show("GANKLIST_NOTE", "Why is " .. r.name .. " on the blacklist?", nil,
+					{ name = r.name, note = r.b.note, add = addBlacklist })
 			end)
 		end
 		row:Show()
 	end
 	content:SetHeight(math.max(#entries * 36 + 4, 1))
-	UI.empty:SetText(tab == "wanted" and "No wanted enemies yet." or tab == "suspects" and "No suspects right now." or tab == "friends" and "No sync friends yet. Add one below." or "No blacklisted players. Add one below.")
+	UI.empty:SetText(tab == "wanted" and "No wanted enemies yet." or tab == "blacklist" and "No blacklisted players. Add one below." or tab == "friends" and "No sync friends yet. Add one below." or "No whitelisted players. Add one below.")
 	UI.empty:SetShown(#entries == 0)
 end
 
@@ -692,7 +725,7 @@ local function buildUI()
 		if frame.TitleText then frame.TitleText:SetPoint("LEFT", icon, "RIGHT", 4, 0) end
 	end
 
-	-- Wanted / Suspects / Friends / Blacklist tabs (plain buttons styled as tabs; works on every flavor).
+	-- Wanted / Blacklist / Friends / Whitelist tabs (plain buttons styled as tabs; works on every flavor).
 	frame.tab = "wanted"
 	local function makeTab(label, x)
 		local t = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
@@ -702,13 +735,13 @@ local function buildUI()
 		return t
 	end
 	frame.tabWanted = makeTab("Wanted", 8)
-	frame.tabSuspect = makeTab("Suspects", 122)
+	frame.tabBlack = makeTab("Blacklist", 122)
 	frame.tabFriends = makeTab("Friends", 236)
-	frame.tabBlack = makeTab("Blacklist", 350)
+	frame.tabWhite = makeTab("Whitelist", 350)
 	frame.tabWanted:SetScript("OnClick", function() frame.tab = "wanted"; refreshUI() end)
-	frame.tabSuspect:SetScript("OnClick", function() frame.tab = "suspects"; refreshUI() end)
-	frame.tabFriends:SetScript("OnClick", function() frame.tab = "friends"; refreshUI() end)
 	frame.tabBlack:SetScript("OnClick", function() frame.tab = "blacklist"; refreshUI() end)
+	frame.tabFriends:SetScript("OnClick", function() frame.tab = "friends"; refreshUI() end)
+	frame.tabWhite:SetScript("OnClick", function() frame.tab = "whitelist"; refreshUI() end)
 
 	local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
 	scroll:SetPoint("TOPLEFT", 10, -84) -- below the tab row
@@ -791,13 +824,36 @@ local function buildUI()
 		local n = bbox:GetText():gsub('"', ""):gsub("^%s+", ""):gsub("%s+$", "")
 		if n == "" and UnitExists("target") and UnitIsPlayer("target") then n = UnitName("target") end
 		n = n and cleanName(n)
-		if n then bbox:SetText(""); bbox:ClearFocus(); StaticPopup_Show("GANKLIST_BLNOTE", n, nil, { name = n }) end
+		if n then bbox:SetText(""); bbox:ClearFocus()
+			StaticPopup_Show("GANKLIST_NOTE", "Why is " .. n .. " on the blacklist?", nil, { name = n, add = addBlacklist }) end
 	end
 	addB:SetScript("OnClick", submitBlack)
 	bbox:SetScript("OnEnterPressed", submitBlack)
 	bbox:SetScript("OnEscapePressed", bbox.ClearFocus)
 	frame.blackAdd, frame.blackBox = addB, bbox
 	addB:Hide(); bbox:Hide() -- shown only on the Blacklist tab
+
+	-- Whitelist tab: type a name (or target one) + Add, then a popup asks for the note.
+	local addW = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+	addW:SetSize(90, 22)
+	addW:SetPoint("BOTTOMRIGHT", -28, 8)
+	addW:SetText("Whitelist")
+	local wbox = CreateFrame("EditBox", nil, frame, "InputBoxTemplate")
+	wbox:SetSize(170, 20)
+	wbox:SetPoint("BOTTOMLEFT", 36, 9)
+	wbox:SetAutoFocus(false)
+	local function submitWhite()
+		local n = wbox:GetText():gsub('"', ""):gsub("^%s+", ""):gsub("%s+$", "")
+		if n == "" and UnitExists("target") and UnitIsPlayer("target") then n = UnitName("target") end
+		n = n and cleanName(n)
+		if n then wbox:SetText(""); wbox:ClearFocus()
+			StaticPopup_Show("GANKLIST_NOTE", "Why is " .. n .. " whitelisted?", nil, { name = n, add = addWhitelist }) end
+	end
+	addW:SetScript("OnClick", submitWhite)
+	wbox:SetScript("OnEnterPressed", submitWhite)
+	wbox:SetScript("OnEscapePressed", wbox.ClearFocus)
+	frame.whiteAdd, frame.whiteBox = addW, wbox
+	addW:Hide(); wbox:Hide() -- shown only on the Whitelist tab
 
 	tinsert(UISpecialFrames, "GankListFrame") -- close with Escape
 	frame:Hide() -- templates start shown; hide so the first /gank toggles it open
@@ -820,11 +876,12 @@ SlashCmdList.GANK = function(msg)
 		local function line(c, desc)
 			print("  |cffffd100" .. c .. "|r  |cff808080-|r  " .. desc)
 		end
-		print("|cffff4040GankList|r |cff808080(killers are logged as Suspects; add the real gankers yourself)|r")
+		print("|cffff4040GankList|r |cff808080(add the gankers you want listed yourself)|r")
 		line("/gank", "open the window")
 		line("/gank add Name", "manually add a ganker")
 		line("/gank del Name", "remove a ganker")
 		line("/gank black Name reason", "blacklist a same-faction jerk (or target them)")
+		line("/gank white Name note", "whitelist a same-faction friendly (or target them)")
 		line("/gank friend Name", "send a sync request  (no name = list, 'reset' = clear)")
 		line("/gank unfriend Name", "stop syncing with a friend")
 		line("/gank ping", "test the sync link")
@@ -858,6 +915,12 @@ SlashCmdList.GANK = function(msg)
 		name = (name ~= "" and name) or (UnitExists("target") and UnitIsPlayer("target") and UnitName("target"))
 		if not name then print("|cffff4040GankList:|r /gank black <name> [reason]  (or target them first)") return end
 		addBlacklist(name, note)
+
+	elseif cmd == "white" or cmd == "whitelist" or cmd == "wl" then
+		local name, note = arg:match("^(%S+)%s*(.-)$")
+		name = (name ~= "" and name) or (UnitExists("target") and UnitIsPlayer("target") and UnitName("target"))
+		if not name then print("|cffff4040GankList:|r /gank white <name> [note]  (or target them first)") return end
+		addWhitelist(name, note)
 
 	elseif cmd == "check" then
 		local function ok(b) return b and "|cff40ff40OK|r" or "|cffff4040FAIL|r" end

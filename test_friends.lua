@@ -94,7 +94,24 @@ assert(GankListDB.blacklist["Jerk"].note == "freshest", "newer sync should updat
 rx("BR\tJerk", "Alice")
 assert(not GankListDB.blacklist["Jerk"], "BR should remove the entry")
 
--- ---- kill handling: Wanted player must NOT also be logged as a Suspect -----
+-- ---- whitelist (mirror of blacklist) -------------------------------------
+-- 10a. Add a same-faction friendly with a note -> stored + pushed to partner.
+clear(); slash("white Pal good healer")
+assert(GankListDB.whitelist["Pal"], "whitelist add failed")
+assert(GankListDB.whitelist["Pal"].note == "good healer", "white note not stored")
+assert(sentTo("W","Alice"), "whitelist entry not synced to partner")
+
+-- 10b. SECURITY: received note stripped of | injection; non-partner dropped.
+rx("W\tBuddy\tnice|cffff0000guy\tAlice\t1000", "Alice")
+assert(GankListDB.whitelist["Buddy"] and not GankListDB.whitelist["Buddy"].note:find("|"), "white note must strip pipes")
+rx("W\tNope\twhatever\tStranger\t1000", "Stranger")
+assert(not GankListDB.whitelist["Nope"], "non-partner whitelist must be ignored")
+
+-- 10c. WR removes a whitelisted player.
+rx("WR\tPal", "Alice")
+assert(not GankListDB.whitelist["Pal"], "WR should remove the entry")
+
+-- ---- kill handling: Wanted player gets a count bump; nothing auto-logged --
 onEvent(eventFrame, "PLAYER_LOGIN") -- sets playerGUID = "G"
 -- real-ish combat-log flags so the addon's bit.band sees player + hostile
 COMBATLOG_OBJECT_TYPE_PLAYER = 0x400; COMBATLOG_OBJECT_REACTION_HOSTILE = 0x40
@@ -107,15 +124,14 @@ local function gankedBy(srcName) -- simulate: hostile player damages me, then I 
   onEvent(eventFrame, "PLAYER_DEAD"); pump()
 end
 
--- 11. Killer already on Wanted -> bump that count, NOT added to Suspects.
+-- 11. Killer already on Wanted -> bump that count.
 GankListDB.gankers["Hunter"] = { count = 2, by = "me", last = 0 }
-GankListDB.pending["Hunter"] = nil
 gankedBy("Hunter")
 assert(GankListDB.gankers["Hunter"].count == 3, "Wanted count should bump on repeat gank")
-assert(GankListDB.pending["Hunter"] == nil, "Wanted player must NOT be logged as a suspect")
 
--- 12. Killer not on Wanted -> logged as a Suspect as before.
+-- 12. Killer not on Wanted -> not auto-added anywhere (you add gankers yourself).
 gankedBy("Random")
-assert(GankListDB.pending["Random"], "unknown killer should be logged as a suspect")
+assert(not GankListDB.gankers["Random"], "unknown killer must NOT be auto-added to Wanted")
+assert(GankListDB.pending == nil, "suspects/pending list should no longer exist")
 
-io.write("ALL TESTS PASSED (friend requests + blacklist + kill handling)\n")
+io.write("ALL TESTS PASSED (friend requests + blacklist + whitelist + kill handling)\n")
