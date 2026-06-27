@@ -607,8 +607,17 @@ function refreshUI()
 			sep:SetHeight(1)
 			sep:SetPoint("BOTTOMLEFT", 2, -1)
 			sep:SetPoint("BOTTOMRIGHT", -2, -1)
+			row:SetScript("OnEnter", function(self) -- hover shows the full note (inline preview truncates)
+				if not self.fullNote or self.fullNote == "" then return end
+				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+				GameTooltip:SetText(self.ttName or "", 1, 0.82, 0)
+				GameTooltip:AddLine(self.fullNote, 0.9, 0.9, 0.9, true) -- true = wrap
+				GameTooltip:Show()
+			end)
+			row:SetScript("OnLeave", function() GameTooltip:Hide() end)
 			rowPool[i] = row
 		end
+		row.fullNote = nil -- reset; note-bearing branches set it below
 		row:SetPoint("TOPLEFT", 4, -(i - 1) * 36 - 2)
 
 		if e.kind == "ganker" then
@@ -623,6 +632,7 @@ function refreshUI()
 			end
 			if r.g.note and r.g.note ~= "" then base = base .. "  |cffcccccc" .. r.g.note .. "|r" end
 			row.info:SetText(base)
+			row.fullNote, row.ttName = r.g.note, r.name
 			local rev = r.g.revenge or 0
 			row.count:SetText("x" .. r.g.count .. (rev > 0 and "  |cff60ff60+" .. rev .. "|r" or ""))
 			row.del:Show(); row.promote:Show()
@@ -640,6 +650,7 @@ function refreshUI()
 			local r = e.r
 			row.name:SetText("|cff80ff80" .. r.name .. "|r")
 			row.info:SetText(r.b.note ~= "" and "|cffcccccc" .. r.b.note .. "|r" or "|cff808080(no note - click Note to add)|r")
+			row.fullNote, row.ttName = r.b.note, r.name
 			row.count:SetText("")
 			row.del:Show(); row.promote:Show()
 			row.promote:SetText("Note")
@@ -668,6 +679,7 @@ function refreshUI()
 			local r = e.r
 			row.name:SetText("|cffffd000" .. r.name .. "|r")
 			row.info:SetText(r.b.note ~= "" and "|cffcccccc" .. r.b.note .. "|r" or "|cff808080(no note - click Note to add)|r")
+			row.fullNote, row.ttName = r.b.note, r.name
 			row.count:SetText("")
 			row.del:Show(); row.promote:Show()
 			row.promote:SetText("Note")
