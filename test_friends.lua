@@ -134,4 +134,18 @@ gankedBy("Random")
 assert(not GankListDB.gankers["Random"], "unknown killer must NOT be auto-added to Wanted")
 assert(GankListDB.pending == nil, "suspects/pending list should no longer exist")
 
-io.write("ALL TESTS PASSED (friend requests + blacklist + whitelist + kill handling)\n")
+-- ---- wanted notes --------------------------------------------------------
+-- 13. /gank note sets a note on a Wanted ganker and pushes it to partners.
+clear(); slash("note Hunter camps the flightpath")
+assert(GankListDB.gankers["Hunter"].note == "camps the flightpath", "wanted note not stored")
+assert(sentTo("G","Alice"), "note change not synced to partner")
+
+-- 14. SECURITY: a received G note is stripped of | injection.
+rx("G\tCamper\t5\tZ\tAlice\t1000\tbad|cffff0000guy", "Alice")
+assert(GankListDB.gankers["Camper"] and not GankListDB.gankers["Camper"].note:find("|"), "G note must strip pipes")
+
+-- 15. A partner's non-empty note is adopted onto an existing ganker.
+rx("G\tHunter\t3\tZ\tAlice\t2000\tfresh note", "Alice")
+assert(GankListDB.gankers["Hunter"].note == "fresh note", "partner note should be adopted")
+
+io.write("ALL TESTS PASSED (friend requests + blacklist + whitelist + kill handling + notes)\n")

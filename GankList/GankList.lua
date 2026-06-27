@@ -75,7 +75,7 @@ end
 local function send(name, only)
 	local g = ensureDB().gankers[name]
 	if not g then return end
-	local payload = table.concat({ "G", name, g.count, g.zone or "", g.by or me, g.last or time() }, "\t")
+	local payload = table.concat({ "G", name, g.count, g.zone or "", g.by or me, g.last or time(), g.note or "" }, "\t")
 	if only then
 		tx(payload, only)
 	else
@@ -111,6 +111,15 @@ local function sendAll(only) -- push the whole shared list (gankers + blacklist 
 	for name in pairs(ensureDB().gankers) do send(name, only) end
 	for name in pairs(ensureDB().blacklist) do sendBlack(name, only) end
 	for name in pairs(ensureDB().whitelist) do sendWhite(name, only) end
+end
+
+-- Set/clear a note on a Wanted ganker, then push it to friends.
+local function setGankNote(name, note)
+	local g = ensureDB().gankers[name]
+	if not g then return end
+	g.note = tostring(note or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", ""):sub(1, 120)
+	send(name)
+	if refreshUI then refreshUI() end
 end
 
 -- Silent catch-up handshake: on login we greet each friend with "HI"; whoever is
@@ -240,7 +249,7 @@ local function onFriendMsg(kind, sender)
 end
 
 local function onReceive(payload, sender)
-	local kind, name, count, zone, by, last = strsplit("\t", payload)
+	local kind, name, count, zone, by, last, note = strsplit("\t", payload)
 
 	if kind == "HI" then -- a friend just logged in: silently push our list back to them
 		if sender and (not helloReply[sender] or time() - helloReply[sender] > 30) then
@@ -318,13 +327,15 @@ local function onReceive(payload, sender)
 	zone = zone and zone:gsub("|", ""):sub(1, 60) or nil
 	by = by and by:gsub("|", ""):sub(1, 40) or nil
 	last = math.min(tonumber(last) or time(), time() + 86400) -- epoch; reject far-future stamps
+	note = note and note:gsub("|", ""):sub(1, 120) or nil -- strip injection, cap length
 	local db = ensureDB()
 	local g = db.gankers[name]
 	if not g then
-		db.gankers[name] = { count = count, last = last, zone = zone, by = by }
+		db.gankers[name] = { count = count, last = last, zone = zone, by = by, note = note }
 	else
 		g.count = math.max(g.count, count) -- avoid double-counting on re-sync
 		g.zone = g.zone or zone
+		if note and note ~= "" then g.note = note end -- adopt a partner's note
 		if type(g.last) ~= "number" or last > g.last then g.last = last end
 	end
 	if refreshUI then refreshUI() end
@@ -604,18 +615,26 @@ function refreshUI()
 			local r = e.r
 			local lvl = fmtLvl(r.g.level or levelSeen[r.name])
 			row.name:SetText("|cffff6060" .. r.name .. "|r" .. (lvl ~= "" and "  |cff9090ff" .. lvl .. "|r" or ""))
+			local base
 			if r.g.seenAt then -- once spotted, the row becomes a tracker
-				row.info:SetText("|cff80c0fflast seen " .. (r.g.seenZone or "?") .. "  ·  " .. fmtAgo(r.g.seenAt) .. "|r")
+				base = "|cff80c0fflast seen " .. (r.g.seenZone or "?") .. "  ·  " .. fmtAgo(r.g.seenAt) .. "|r"
 			else
-				row.info:SetText((r.g.zone or "?") .. "  ·  " .. fmtTime(r.g.last))
+				base = (r.g.zone or "?") .. "  ·  " .. fmtTime(r.g.last)
 			end
+			if r.g.note and r.g.note ~= "" then base = base .. "  |cffcccccc" .. r.g.note .. "|r" end
+			row.info:SetText(base)
 			local rev = r.g.revenge or 0
 			row.count:SetText("x" .. r.g.count .. (rev > 0 and "  |cff60ff60+" .. rev .. "|r" or ""))
-			row.del:Show(); row.promote:Hide()
+			row.del:Show(); row.promote:Show()
+			row.promote:SetText("Note")
 			row.del:SetScript("OnClick", function()
 				db.gankers[r.name] = nil
 				sendRemove(r.name) -- ask partners to forgive too
 				refreshUI()
+			end)
+			row.promote:SetScript("OnClick", function() -- add/edit a note
+				StaticPopup_Show("GANKLIST_NOTE", "Note for " .. r.name .. ":", nil,
+					{ name = r.name, note = r.g.note, add = setGankNote })
 			end)
 		elseif e.kind == "white" then -- whitelisted same-faction friendly
 			local r = e.r
@@ -880,6 +899,7 @@ SlashCmdList.GANK = function(msg)
 		line("/gank", "open the window")
 		line("/gank add Name", "manually add a ganker")
 		line("/gank del Name", "remove a ganker")
+		line("/gank note Name text", "add/edit a note on a wanted ganker (empty = clear)")
 		line("/gank black Name reason", "blacklist a same-faction jerk (or target them)")
 		line("/gank white Name note", "whitelist a same-faction friendly (or target them)")
 		line("/gank friend Name", "send a sync request  (no name = list, 'reset' = clear)")
@@ -959,6 +979,15 @@ SlashCmdList.GANK = function(msg)
 		send(name)
 		if refreshUI then refreshUI() end
 		print("|cffff4040GankList:|r added " .. name)
+
+	elseif cmd == "note" then
+		local name, note = arg:match("^(%S+)%s*(.-)$")
+		name = (name ~= "" and name) or (UnitExists("target") and UnitIsPlayer("target") and UnitName("target"))
+		name = name and cleanName(name)
+		if not name then print("|cffff4040GankList:|r /gank note <name> <text>  (or target them first)") return end
+		if not db.gankers[name] then print("|cffff4040GankList:|r " .. name .. " isn't on the Wanted list") return end
+		setGankNote(name, note)
+		print("|cffff4040GankList:|r note " .. (note ~= "" and "set" or "cleared") .. " for " .. name)
 
 	elseif cmd == "del" or cmd == "remove" or cmd == "forgive" then -- forgive/remove kept as silent aliases
 		local name = arg ~= "" and arg or (UnitExists("target") and UnitIsPlayer("target") and UnitName("target"))
