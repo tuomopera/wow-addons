@@ -983,6 +983,32 @@ SlashCmdList.GANK = function(msg)
 		sendAll()
 		print("|cffff4040GankList:|r pushed list to friends")
 
+	elseif cmd == "lfgdebug" then -- dump LFG browse rows so we can see what text/leader each exposes
+		print("|cffff8040GankList:|r LFG update hooked: " .. tostring(GankListLFGHooked))
+		local sb = LFGBrowseFrameScrollBox
+		if not (sb and sb.GetFrames) then
+			print("|cffff4040no LFGBrowseFrameScrollBox - open the LFG 'Browse' tab first|r")
+		else
+			local frames = sb:GetFrames()
+			print("rows: " .. #frames)
+			for _, entry in ipairs(frames) do
+				local parts = {}
+				for _, r in ipairs({ entry:GetRegions() }) do
+					if r.GetObjectType and r:GetObjectType() == "FontString" then
+						local t = r:GetText(); if t and t ~= "" then parts[#parts + 1] = t end
+					end
+				end
+				local id = entry.resultID
+				local leader
+				if id and C_LFGList and C_LFGList.GetSearchResultInfo then
+					local ok, info = pcall(C_LFGList.GetSearchResultInfo, id)
+					if ok and type(info) == "table" then leader = info.leaderName end
+				end
+				print((id and ("#" .. id .. " ") or "") .. "leader=" .. tostring(leader)
+					.. " | " .. table.concat(parts, " / "))
+			end
+		end
+
 	elseif cmd == "add" then
 		local name = arg ~= "" and arg or (UnitExists("target") and UnitIsPlayer("target") and UnitName("target"))
 		name = name and cleanName(name)
@@ -1027,3 +1053,86 @@ SlashCmdList.GANK = function(msg)
 		toggleUI()
 	end
 end
+
+-- ---- LFG browse highlighting --------------------------------------------
+-- The TBC Anniversary LFG tool is a bulletin-board browser, not a unit list,
+-- so the unit/tooltip alerts never fire on it. Instead we post-hook the browse
+-- refresh and stamp a red ⚠ onto any result row whose name is on the blacklist
+-- (or Wanted). Row frame/fontstring names differ between client builds, so we
+-- scan each row's FontStrings rather than hardcode a name region.
+-- ponytail: covers the LFG browser only (Who panel uses the same trick if needed).
+
+local function lfgListed(text) -- returns "blacklist" / "gank" / nil for a row's text
+	local name = cleanName(text)
+	if not name then return nil end
+	local db = ensureDB()
+	local base = name:match("^[^-]+")
+	if db.blacklist[name] then return "blacklist" end
+	if db.gankers[name] then return "gank" end
+	for k in pairs(db.blacklist) do if k:match("^[^-]+") == base then return "blacklist" end end
+	for k in pairs(db.gankers) do if k:match("^[^-]+") == base then return "gank" end end
+	return nil
+end
+
+-- Inline skull texture (raid-target icon 8: texcoords 0.75-1.0, 0.25-0.5 of the 256x256 atlas).
+local LFG_MARK = "|TInterface\\TargetingFrame\\UI-RaidTargetingIcons:16:16:0:0:256:256:192:256:64:128|t "
+
+-- Prepend the skull to any FontString in `frame` (and its children) whose text is a
+-- listed player. Reused for LFG result rows and the result-member tooltip - the latter
+-- keeps each member's name in a child frame, so we recurse. MARK guard = idempotent.
+local function markListedText(frame, depth)
+	if not frame then return end
+	if frame.GetRegions then
+		for _, r in ipairs({ frame:GetRegions() }) do
+			if r.GetObjectType and r:GetObjectType() == "FontString" then
+				local txt = r:GetText()
+				if txt and txt ~= "" and txt:sub(1, #LFG_MARK) ~= LFG_MARK and lfgListed(txt) then
+					r:SetText(LFG_MARK .. txt)
+					-- fixed-width fields (tooltip member names) truncate to "Ny..."; widen to fit
+					if r.IsTruncated and r:IsTruncated() and r.GetUnboundedStringWidth then
+						r:SetWidth(r:GetUnboundedStringWidth() + 2)
+					end
+				end
+			end
+		end
+	end
+	depth = depth or 0
+	if depth < 4 and frame.GetChildren then
+		for _, c in ipairs({ frame:GetChildren() }) do markListedText(c, depth + 1) end
+	end
+end
+
+local function lfgScan()
+	local sb = LFGBrowseFrameScrollBox
+	if not sb or not sb.GetFrames then return end
+	for _, entry in ipairs(sb:GetFrames()) do markListedText(entry) end
+end
+
+-- Real player unit tooltips (party frames, world mouseover): add a skull line.
+GameTooltip:HookScript("OnTooltipSetUnit", function(tt)
+	local _, unit = tt:GetUnit()
+	if unit and UnitIsPlayer(unit) then
+		local n = UnitName(unit)
+		if n and lfgListed(n) then tt:AddLine(LFG_MARK .. "GankList", 1, 0.2, 0.2); tt:Show() end
+	end
+end)
+
+-- The LFG UI is a load-on-demand Blizzard addon, so its ScrollBox may not exist
+-- when we load. Retry the hook on each ADDON_LOADED until the ScrollBox appears.
+GankListLFGHooked = false -- exposed for /gank lfgdebug
+local function lfgTryHook()
+	if GankListLFGHooked then return end
+	local sb = LFGBrowseFrameScrollBox
+	if sb and sb.Update and sb.GetFrames then
+		hooksecurefunc(sb, "Update", lfgScan)
+		-- The result-member tooltip lists each group member by name; skull the listed ones.
+		local tip = LFGBrowseSearchEntryTooltip
+		if tip then tip:HookScript("OnShow", markListedText) end
+		GankListLFGHooked = true
+	end
+end
+local lfgEv = CreateFrame("Frame")
+lfgEv:RegisterEvent("ADDON_LOADED")
+lfgEv:RegisterEvent("PLAYER_LOGIN")
+lfgEv:SetScript("OnEvent", lfgTryHook)
+lfgTryHook()

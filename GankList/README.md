@@ -58,6 +58,13 @@ Once someone's on **Wanted**:
 - When you land the killing blow on them, a **revenge** tally (`⚔ N`) ticks up
   next to their kill count - sweet, sweet payback.
 
+## Looking For Group warnings
+
+When the LFG browser is open, any group whose **leader or members** are on your
+Wanted or Blacklist gets a 💀 skull next to their name - both in the result list
+and in the group's member tooltip - so you don't invite a known jerk to a dungeon.
+The skull also shows on player unit tooltips (party frames, mouseover).
+
 ## Syncing
 
 Add each other as friends on both PCs:
