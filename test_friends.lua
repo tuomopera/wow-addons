@@ -152,18 +152,15 @@ rx("G\tHunter\t3\tZ\tAlice\t2000\tfresh note", "Alice")
 assert(GankListDB.gankers["Hunter"].note == "fresh note", "partner note should be adopted")
 
 -- ---- battleground/arena mute --------------------------------------------
--- 16. In a BG, a repeat gank by a Wanted player is ignored (muted by default).
-assert(GankListDB.mutePvP == true, "mutePvP should default on")
+-- 16. In a BG/arena, a repeat gank by a Wanted player is always ignored.
 local before = GankListDB.gankers["Hunter"].count
 instanceType = "pvp"; gankedBy("Hunter")
-assert(GankListDB.gankers["Hunter"].count == before, "BG deaths must not count while muted")
+assert(GankListDB.gankers["Hunter"].count == before, "BG deaths must not count")
 instanceType = "arena"; gankedBy("Hunter")
-assert(GankListDB.gankers["Hunter"].count == before, "arena deaths must not count while muted")
+assert(GankListDB.gankers["Hunter"].count == before, "arena deaths must not count")
 
--- 17. Toggling the option off restores counting inside a BG.
-slash("pvp off")
-gankedBy("Hunter")
-assert(GankListDB.gankers["Hunter"].count == before + 1, "BG deaths should count once unmuted")
-slash("pvp on"); instanceType = "none"
+-- 17. Outside instanced PvP it still counts.
+instanceType = "none"; gankedBy("Hunter")
+assert(GankListDB.gankers["Hunter"].count == before + 1, "open-world deaths should still count")
 
 io.write("ALL TESTS PASSED (friend requests + blacklist + whitelist + kill handling + notes)\n")

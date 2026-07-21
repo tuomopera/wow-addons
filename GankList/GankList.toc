@@ -2,7 +2,7 @@
 ## Title: GankList
 ## Notes: Remember who ganked you. Syncs with 1-2 trusted friends.
 ## Author: you
-## Version: 1.8.0
+## Version: 1.8.1
 ## SavedVariables: GankListDB
 
 GankList.lua
