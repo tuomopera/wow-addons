@@ -33,6 +33,9 @@ StaticPopupDialogs={}; function StaticPopup_Show(w,a,b,d) popup={which=w,data=d}
 SLASH_GANK1=""; SlashCmdList={}
 bit={band=function() return 0 end}; COMBATLOG_OBJECT_TYPE_PLAYER=1; COMBATLOG_OBJECT_REACTION_HOSTILE=1
 UISpecialFrames={}
+GameTooltip=stubFrame()
+local instanceType = "none"
+IsInInstance=function() return instanceType ~= "none", instanceType end
 
 assert(loadfile("GankList/GankList.lua"))()
 local onEvent = eventFrame.scripts.OnEvent
@@ -147,5 +150,20 @@ assert(GankListDB.gankers["Camper"] and not GankListDB.gankers["Camper"].note:fi
 -- 15. A partner's non-empty note is adopted onto an existing ganker.
 rx("G\tHunter\t3\tZ\tAlice\t2000\tfresh note", "Alice")
 assert(GankListDB.gankers["Hunter"].note == "fresh note", "partner note should be adopted")
+
+-- ---- battleground/arena mute --------------------------------------------
+-- 16. In a BG, a repeat gank by a Wanted player is ignored (muted by default).
+assert(GankListDB.mutePvP == true, "mutePvP should default on")
+local before = GankListDB.gankers["Hunter"].count
+instanceType = "pvp"; gankedBy("Hunter")
+assert(GankListDB.gankers["Hunter"].count == before, "BG deaths must not count while muted")
+instanceType = "arena"; gankedBy("Hunter")
+assert(GankListDB.gankers["Hunter"].count == before, "arena deaths must not count while muted")
+
+-- 17. Toggling the option off restores counting inside a BG.
+slash("pvp off")
+gankedBy("Hunter")
+assert(GankListDB.gankers["Hunter"].count == before + 1, "BG deaths should count once unmuted")
+slash("pvp on"); instanceType = "none"
 
 io.write("ALL TESTS PASSED (friend requests + blacklist + whitelist + kill handling + notes)\n")

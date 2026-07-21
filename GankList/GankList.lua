@@ -17,7 +17,15 @@ local function ensureDB()
 	GankListDB.outReq = GankListDB.outReq or {}      -- friend requests we sent, awaiting their accept
 	GankListDB.blacklist = GankListDB.blacklist or {} -- [name] = { note, by, t } same-faction jerks
 	GankListDB.whitelist = GankListDB.whitelist or {} -- [name] = { note, by, t } same-faction friendlies
+	if GankListDB.mutePvP == nil then GankListDB.mutePvP = true end -- default: silent in BG/arena
 	return GankListDB
+end
+
+-- Battlegrounds and arenas are one long gank; alerting there is pure noise, so by
+-- default we stay quiet and don't count those deaths. Toggle with /gank pvp.
+local function mutedHere()
+	local _, t = IsInInstance()
+	return ensureDB().mutePvP and (t == "pvp" or t == "arena")
 end
 
 -- Validate a player name. Returns the cleaned name, or nil if it can't be one.
@@ -391,6 +399,7 @@ end
 -- Alert when a listed ganker comes into range, and stamp where/when we last saw them.
 local alertSeen = {} -- name -> last alert time, throttled to 1/60s
 local function alertIfGanker(unit)
+	if mutedHere() then return end
 	if not UnitExists(unit) or not UnitIsPlayer(unit) then return end
 	local name = UnitName(unit)
 	if not name then return end
@@ -407,6 +416,7 @@ end
 
 -- Revenge: you landed a killing blow on a Wanted player.
 local function noteRevenge(name)
+	if mutedHere() then return end
 	local g = findGanker(ensureDB(), name)
 	if not g then return end
 	g.revenge = (g.revenge or 0) + 1
@@ -417,6 +427,7 @@ end
 -- A kill bumps an already-Wanted player's count; nothing is auto-added to Wanted.
 -- You add real gankers yourself via /gank add (or the Add Target button).
 local function handleKill(name)
+	if mutedHere() then return end
 	name = cleanName(name)
 	if not name then return end
 	local db = ensureDB()
@@ -534,6 +545,7 @@ function refreshUI()
 	if not UI or not UI:IsShown() then return end
 	local db = ensureDB()
 	if UI.auto then UI.auto:SetChecked(db.autoAccept and true or false) end
+	if UI.mute then UI.mute:SetChecked(db.mutePvP and true or false) end
 
 	-- Split into the four tabs.
 	local gks, frs, bl, wl = {}, {}, {}, {}
@@ -776,7 +788,7 @@ local function buildUI()
 
 	local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
 	scroll:SetPoint("TOPLEFT", 10, -84) -- below the tab row
-	scroll:SetPoint("BOTTOMRIGHT", -30, 60) -- leave room for the auto-accept checkbox + buttons
+	scroll:SetPoint("BOTTOMRIGHT", -30, 82) -- leave room for the two checkboxes + buttons
 	local content = CreateFrame("Frame", nil, scroll)
 	content:SetSize(420, 1)
 	scroll:SetScrollChild(content)
@@ -795,6 +807,16 @@ local function buildUI()
 	autoLabel:SetText("Auto-accept friends' forgive requests")
 	auto:SetScript("OnClick", function(self) ensureDB().autoAccept = self:GetChecked() and true or false end)
 	frame.auto = auto
+
+	-- Stay quiet in battlegrounds/arenas (on by default).
+	local mute = CreateFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
+	mute:SetSize(22, 22)
+	mute:SetPoint("BOTTOMLEFT", 12, 56)
+	local muteLabel = mute:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	muteLabel:SetPoint("LEFT", mute, "RIGHT", 2, 0)
+	muteLabel:SetText("No alerts in battlegrounds / arenas")
+	mute:SetScript("OnClick", function(self) ensureDB().mutePvP = self:GetChecked() and true or false end)
+	frame.mute = mute
 
 	-- Add current target to Wanted (same as /gank add with no name).
 	local addTgt = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
@@ -920,6 +942,7 @@ SlashCmdList.GANK = function(msg)
 		line("/gank sync", "push your list to friends now")
 		line("/gank party", "announce the list to party/raid")
 		line("/gank autoaccept", "toggle auto-accept of forgives")
+		line("/gank pvp", "toggle muting alerts in battlegrounds/arenas (default: muted)")
 		line("/gank check", "reload-safe diagnostic")
 		return
 	end
@@ -973,6 +996,12 @@ SlashCmdList.GANK = function(msg)
 		else db.autoAccept = not db.autoAccept end
 		if refreshUI then refreshUI() end
 		print("|cffff4040GankList:|r auto-accept forgive requests " .. (db.autoAccept and "ON" or "OFF"))
+
+	elseif cmd == "pvp" then
+		if arg == "on" then db.mutePvP = true elseif arg == "off" then db.mutePvP = false
+		else db.mutePvP = not db.mutePvP end
+		if refreshUI then refreshUI() end
+		print("|cffff4040GankList:|r alerts in battlegrounds/arenas " .. (db.mutePvP and "OFF" or "ON"))
 
 	elseif cmd == "ping" then
 		if #db.partners == 0 then print("|cffff4040GankList:|r no friends yet - /gank friend add <name>") return end
