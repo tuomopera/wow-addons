@@ -1,0 +1,5 @@
+## Interface: 20506
+## Title: KeyRing Anchor
+## Notes: Shows and repositions the keyring button (Bartender4-friendly)
+## SavedVariables: KeyRingAnchorDB
+KeyRingAnchor.lua
