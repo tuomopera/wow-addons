@@ -52,6 +52,20 @@ local function cleanName(s)
 	return s
 end
 
+-- Our kills on a ganker are counted per killer - g.kills = { [Someone] = n } -
+-- because a shared total can't be a single number: re-syncing the same list
+-- would keep adding it to itself. Each of us owns one slot, merging takes the
+-- higher value per slot, and the number on screen is the sum. Idempotent.
+local function killsOf(g)
+	if g.revenge and not g.kills then g.kills = { [me] = g.revenge } end -- the pre-1.11 tally was never synced, so it was yours
+	return g.kills or {}
+end
+local function killTotal(g)
+	local n = 0
+	for _, v in pairs(killsOf(g)) do n = n + v end
+	return n
+end
+
 local function record(name, zone, by)
 	local db = ensureDB()
 	local g = db.gankers[name]
@@ -73,6 +87,28 @@ local function fmtTime(t)
 end
 
 -- ---- sync ----------------------------------------------------------------
+local MAX_PAYLOAD = 250 -- addon whispers die above 255 bytes; leave a little air
+
+-- The kill tally on the wire: "Someone:3,Otherguy:1". Names can't contain a
+-- comma or a colon, so no escaping is needed.
+local function killsWire(g)
+	local parts = {}
+	for owner, n in pairs(killsOf(g)) do parts[#parts + 1] = owner .. ":" .. n end
+	table.sort(parts) -- stable order, so an unchanged tally produces an identical payload
+	return table.concat(parts, ",")
+end
+
+-- Merge a received tally into ours: highest value wins per killer, never a sum.
+local function mergeKills(g, wire)
+	if not wire or wire == "" then return end
+	g.kills = killsOf(g)
+	for rawOwner, rawN in wire:gmatch("([^,:]+):(%d+)") do
+		local owner = cleanName(rawOwner)
+		local n = math.min(tonumber(rawN) or 0, 100000)
+		if owner and n > (g.kills[owner] or 0) then g.kills[owner] = n end
+	end
+end
+
 -- All outgoing whispers go through a throttled queue (~5/sec) so a big list can
 -- never burst-spam and get you (or the friend answering a handshake) disconnected.
 local outq, outTicker = {}, nil
@@ -91,8 +127,20 @@ end
 local function send(name, only)
 	local g = ensureDB().gankers[name]
 	if not g then return end
-	-- trailing `added` is newer than the original format; older clients just ignore it
-	local payload = table.concat({ "G", name, g.count, g.zone or "", g.by or me, g.last or time(), g.note or "", g.added or g.last or time() }, "\t")
+	-- Fields after `note` were added later; older clients read the first seven and
+	-- ignore the rest, so the order of these can never change.
+	local function build(note)
+		return table.concat({ "G", name, g.count, g.zone or "", g.by or me, g.last or time(), note,
+			g.added or g.last or time(), g.seenAt or 0, killsWire(g), g.noteAt or 0 }, "\t")
+	end
+	local payload = build(g.note or "")
+	if #payload > MAX_PAYLOAD then -- an addon whisper over 255 bytes is dropped on the floor
+		local note = g.note or ""
+		-- ponytail: the note is the only field worth sacrificing; a tally with a
+		-- dozen killers in it could still overflow. Split into two messages if
+		-- anyone ever syncs with that many friends.
+		payload = build(note:sub(1, math.max(0, #note - (#payload - MAX_PAYLOAD))))
+	end
 	if only then
 		tx(payload, only)
 	else
@@ -135,6 +183,7 @@ local function setGankNote(name, note)
 	local g = ensureDB().gankers[name]
 	if not g then return end
 	g.note = tostring(note or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", ""):sub(1, 120)
+	g.noteAt = time() -- stamped, so clearing it beats a friend's older copy
 	send(name)
 	if refreshUI then refreshUI() end
 end
@@ -281,7 +330,7 @@ local function onFriendMsg(kind, sender)
 end
 
 local function onReceive(payload, sender)
-	local kind, name, count, zone, by, last, note, added = strsplit("\t", payload)
+	local kind, name, count, zone, by, last, note, added, seen, kills, noteAt = strsplit("\t", payload)
 
 	if kind == "HI" then -- a friend just logged in: silently push our list back to them
 		if sender and (not helloReply[sender] or time() - helloReply[sender] > 30) then
@@ -366,26 +415,41 @@ local function onReceive(payload, sender)
 	last = math.min(tonumber(last) or time(), time() + 86400) -- epoch; reject far-future stamps
 	note = note and note:gsub("|", ""):sub(1, 120) or nil -- strip injection, cap length
 	added = math.min(tonumber(added) or last, time() + 86400) -- absent from pre-1.9 clients
+	seen = math.min(tonumber(seen) or 0, time() + 86400)
+	noteAt = math.min(tonumber(noteAt) or 0, time() + 86400)
 	if buried(name, last) then return end -- we forgave them more recently than this
 	local db = ensureDB()
 	local g = db.gankers[name]
 	if not g then
-		db.gankers[name] = { count = count, last = last, added = added, zone = zone, by = by, note = note }
+		g = { count = count, last = last, added = added, zone = zone, by = by, note = note, noteAt = noteAt }
+		db.gankers[name] = g
+		if seen > 0 then g.seenAt = seen end
 	else
 		g.count = math.max(g.count, count) -- avoid double-counting on re-sync
 		g.zone = g.zone or zone
-		if note and note ~= "" then g.note = note end -- adopt a partner's note
 		if type(g.last) ~= "number" or last > g.last then g.last = last end
 		if type(g.added) ~= "number" or added < g.added then g.added = added end -- keep the earliest sighting
+		if seen > (g.seenAt or 0) then g.seenAt = seen end -- whoever laid eyes on them last
+		-- A stamped note wins if it's newer - including an emptied one, which is
+		-- how clearing a note finally propagates. Unstamped (pre-1.11) senders
+		-- keep the old rule: adopt anything non-empty, never blank ours.
+		if noteAt > 0 then
+			if noteAt > (g.noteAt or 0) then g.note, g.noteAt = note, noteAt end
+		elseif note and note ~= "" then
+			g.note = note
+		end
 	end
+	mergeKills(g, kills)
 	if refreshUI then refreshUI() end
 end
 
--- Find a Wanted entry by name, matching the base name too (stored key may have -Realm).
+-- Find a Wanted entry by name, matching the base name too (stored key may have
+-- -Realm). Returns the entry and its key - syncing needs the key, not the name
+-- we happened to be handed.
 local function findGanker(db, name)
-	if db.gankers[name] then return db.gankers[name] end
+	if db.gankers[name] then return db.gankers[name], name end
 	local base = name:match("^[^-]+")
-	for k, v in pairs(db.gankers) do if k:match("^[^-]+") == base then return v end end
+	for k, v in pairs(db.gankers) do if k:match("^[^-]+") == base then return v, k end end
 end
 
 -- Big center-screen alert (raid-warning style), with a small-text fallback.
@@ -404,24 +468,29 @@ local function alertIfGanker(unit)
 	if not UnitExists(unit) or not UnitIsPlayer(unit) then return end
 	local name = UnitName(unit)
 	if not name then return end
-	local g = findGanker(ensureDB(), name)
+	local g, key = findGanker(ensureDB(), name)
 	if not g then return end
 	g.seenAt = time() -- last-seen tracker (every sighting, not throttled)
 	if refreshUI then refreshUI() end
 	local now = GetTime()
 	if alertSeen[name] and now - alertSeen[name] < 60 then return end
 	alertSeen[name] = now
+	send(key) -- share the sighting, but only on the throttled edge: a nameplate
+	          -- flickering in and out must never turn into a whisper per frame
 	bigAlert("Ganker nearby: " .. name .. " (x" .. g.count .. ")", 1, 0.2, 0.2)
 end
 
 -- Revenge: you landed a killing blow on a Wanted player.
 local function noteRevenge(name)
 	if mutedHere() then return end
-	local g = findGanker(ensureDB(), name)
+	local g, key = findGanker(ensureDB(), name)
 	if not g then return end
-	g.revenge = (g.revenge or 0) + 1
+	g.kills = killsOf(g)
+	g.kills[me] = (g.kills[me] or 0) + 1
+	g.revenge = nil -- superseded by the per-killer tally
+	send(key) -- tell the others we got one
 	if refreshUI then refreshUI() end
-	UIErrorsFrame:AddMessage("Got even with " .. name .. "! (" .. g.revenge .. ")", 0.3, 1, 0.3, 1, 5)
+	UIErrorsFrame:AddMessage("Got even with " .. name .. "! (" .. killTotal(g) .. ")", 0.3, 1, 0.3, 1, 5)
 end
 
 -- A kill bumps an already-Wanted player's count; nothing is auto-added to Wanted.
@@ -678,8 +747,8 @@ function refreshUI()
 			if r.g.seenAt then meta = meta .. "   |cff80c0ffseen " .. fmtTime(r.g.seenAt) .. "|r" end
 			row.meta:SetText(meta)
 			row.info:SetText(r.g.note and r.g.note ~= "" and "|cffcccccc" .. r.g.note .. "|r" or "")
-			local rev = r.g.revenge or 0
-			row.count:SetText("x" .. r.g.count .. (rev > 0 and "  |cff60ff60+" .. rev .. "|r" or ""))
+			local kills = killTotal(r.g) -- everyone's kills on them, not just yours
+			row.count:SetText("x" .. r.g.count .. (kills > 0 and "  |cff60ff60\226\154\148" .. kills .. "|r" or ""))
 			row.del:Show(); row.promote:Show()
 			row.promote:SetText("Note")
 			row.del:SetScript("OnClick", function()

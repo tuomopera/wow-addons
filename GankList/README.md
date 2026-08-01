@@ -57,8 +57,10 @@ Once someone's on **Wanted**:
 - You get a brief on-screen alert when they come into range (nameplate / target /
   mouseover), and the row notes **· seen `<date> <time>`** so you know how cold
   the trail is.
-- When you land the killing blow on them, a **revenge** tally (`⚔ N`) ticks up
-  next to their kill count - sweet, sweet payback.
+- When anyone you sync with lands the killing blow, the **payback** tally
+  (`⚔ N`) next to their kill count ticks up. It's the whole crew's total, not
+  just yours: each of you owns your own slot in it, so a re-sync can never
+  double it or roll it back.
 
 ## Looking For Group warnings
 
@@ -84,6 +86,11 @@ your list and asks the friend to push theirs back.
 Removals stick. Forgiving someone leaves a 30-day tombstone, so your friend's copy
 can't quietly resurrect them on the next sync - the usual reason two lists drift
 apart. Re-adding the name clears it.
+
+Everything on an entry travels: the name, when it was added, the note (including
+**clearing** one - notes are stamped, newest wins), sightings, and the payback
+tally. Nothing needs a button. Gank counts merge to the higher of the two rather
+than adding up, so being killed by the same player doesn't count twice.
 
 Out of sync? `/gank check` shows whether each friend is online (whispers to an
 offline friend are dropped by the server) and how many messages are still queued.

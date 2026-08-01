@@ -216,4 +216,54 @@ editor.OnAccept(dlg, { name = "Ninja", note = "stole my tag",
   add = function(n, t) GankListDB.blacklist[n].note = t end })
 assert(GankListDB.blacklist["Ninja"].note == "stole my tag twice", "Save must store the edited note")
 
-io.write("ALL TESTS PASSED (friend requests + blacklist + whitelist + kill handling + notes + tombstones + two-way sync + note editor)\n")
+-- ---- everything else syncs too ------------------------------------------
+-- G payload is: G name count zone by last note added seen kills noteAt
+local function payloadFor(name)
+  for _,m in ipairs(sent) do
+    local k, n = strsplit("\t", m[1]); if k == "G" and n == name then return m[1] end
+  end
+end
+local function fieldOf(name, i)
+  local p = payloadFor(name); if not p then return nil end
+  local t = {}; for f in (p.."\t"):gmatch("(.-)\t") do t[#t+1] = f end
+  return t[i]
+end
+
+-- 23. Our kills are counted per killer, so a re-sync can never double them.
+GankListDB.gankers["Rogue"] = { count = 1, by = "me", last = 1000, added = 1000 }
+rx("G\tRogue\t1\tZ\tAlice\t1000\t\t1000\t0\tAlice:2\t0", "Alice")
+assert(GankListDB.gankers["Rogue"].kills.Alice == 2, "partner kills should merge in")
+rx("G\tRogue\t1\tZ\tAlice\t1000\t\t1000\t0\tAlice:2\t0", "Alice") -- same message again
+assert(GankListDB.gankers["Rogue"].kills.Alice == 2, "re-syncing the same tally must not add to it")
+rx("G\tRogue\t1\tZ\tAlice\t1000\t\t1000\t0\tAlice:1\t0", "Alice") -- stale, lower
+assert(GankListDB.gankers["Rogue"].kills.Alice == 2, "a lower tally must not roll ours back")
+
+-- 24. Slots are per killer, so both sides add up rather than overwrite.
+GankListDB.gankers["Rogue"].kills["Me"] = 3
+clear(); slash("note Rogue camper")
+assert(fieldOf("Rogue", 10):find("Alice:2") and fieldOf("Rogue", 10):find("Me:3"),
+  "both killers belong on the wire: " .. tostring(fieldOf("Rogue", 10)))
+
+-- 25. Last seen is shared, newest sighting wins.
+rx("G\tRogue\t1\tZ\tAlice\t1000\t\t1000\t7000\t\t0", "Alice")
+assert(GankListDB.gankers["Rogue"].seenAt == 7000, "a friend's newer sighting should land")
+rx("G\tRogue\t1\tZ\tAlice\t1000\t\t1000\t500\t\t0", "Alice")
+assert(GankListDB.gankers["Rogue"].seenAt == 7000, "an older sighting must not overwrite")
+
+-- 26. A cleared note propagates (stamped), but an unstamped blank never wipes ours.
+GankListDB.gankers["Rogue"].note, GankListDB.gankers["Rogue"].noteAt = "camps FP", 2000
+rx("G\tRogue\t1\tZ\tAlice\t1000\t\t1000\t0\t\t3000", "Alice") -- newer, empty
+assert(GankListDB.gankers["Rogue"].note == "", "a newer cleared note should clear ours")
+GankListDB.gankers["Rogue"].note, GankListDB.gankers["Rogue"].noteAt = "back again", 4000
+rx("G\tRogue\t1\tZ\tAlice\t1000\t\t1000", "Alice") -- pre-1.11 client, no stamp
+assert(GankListDB.gankers["Rogue"].note == "back again", "an unstamped sender must not blank our note")
+
+-- 27. A long note can't push the whisper past the 255-byte cliff and get dropped.
+GankListDB.gankers["Verylongnamedude"] = { count = 99, by = "Somebodywithalongname",
+  last = 1000, added = 1000, zone = string.rep("Z", 60), noteAt = 1,
+  note = string.rep("x", 120), kills = { Alice = 5, Me = 4, Carolyn = 3 } }
+clear(); slash("sync")
+local p = payloadFor("Verylongnamedude")
+assert(p and #p <= 255, "payload must stay under the addon-message limit, got " .. #(p or ""))
+
+io.write("ALL TESTS PASSED (friend requests + blacklist + whitelist + kill handling + notes + tombstones + two-way sync + note editor + kills/seen/note-clear)\n")
