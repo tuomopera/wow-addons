@@ -55,8 +55,8 @@ row shows just the name, when you added them, and the note why.
 Once someone's on **Wanted**:
 
 - You get a brief on-screen alert when they come into range (nameplate / target /
-  mouseover), and the row updates to **last seen `<zone>`, `<time> ago`** so you
-  can hunt them down.
+  mouseover), and the row notes **· seen `<date> <time>`** so you know how cold
+  the trail is.
 - When you land the killing blow on them, a **revenge** tally (`⚔ N`) ticks up
   next to their kill count - sweet, sweet payback.
 
@@ -77,8 +77,17 @@ Add each other as friends on both PCs:
 
 New gankers sync automatically the moment you add them. If a friend was **offline**
 when you added someone, they catch up silently the next time either of you logs in
-(a quiet handshake swaps both lists - no chat spam, no buttons). `/gank sync` is
-just a manual "push everything now" if you ever want it.
+(a quiet handshake swaps both lists - no chat spam, no buttons). `/gank sync` (or
+the **Sync Partners** button) forces it now, and works **both ways**: it pushes
+your list and asks the friend to push theirs back.
+
+Removals stick. Forgiving someone leaves a 30-day tombstone, so your friend's copy
+can't quietly resurrect them on the next sync - the usual reason two lists drift
+apart. Re-adding the name clears it.
+
+Out of sync? `/gank check` shows whether each friend is online (whispers to an
+offline friend are dropped by the server) and how many messages are still queued.
+Both sides need the same addon version.
 
 Sync uses addon whispers, so it only works while you're **same faction** and able
 to whisper each other. Only names in your friend list are accepted - strangers

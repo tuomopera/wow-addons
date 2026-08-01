@@ -163,4 +163,35 @@ assert(GankListDB.gankers["Hunter"].count == before, "arena deaths must not coun
 instanceType = "none"; gankedBy("Hunter")
 assert(GankListDB.gankers["Hunter"].count == before + 1, "open-world deaths should still count")
 
-io.write("ALL TESTS PASSED (friend requests + blacklist + whitelist + kill handling + notes)\n")
+-- ---- removals stick across a re-sync (tombstones) ------------------------
+-- time() is pinned at 1000 in this harness, so a tombstone is stamped 1000 and
+-- an incoming entry is "older" iff its own stamp is <= 1000.
+
+-- 18. Forgiving someone survives the friend pushing their stale copy back.
+slash("remove Hunter")
+assert(not GankListDB.gankers["Hunter"], "remove should delete the entry")
+rx("G\tHunter\t9\tZ\tAlice\t900\tstale\t900", "Alice")
+assert(not GankListDB.gankers["Hunter"], "a stale re-push must NOT resurrect a forgiven ganker")
+
+-- 19. But a genuinely newer entry from the friend still wins.
+rx("G\tHunter\t9\tZ\tAlice\t5000\tnewer\t5000", "Alice")
+assert(GankListDB.gankers["Hunter"], "an entry newer than the removal should come back")
+
+-- 19a. Same rule for blacklist/whitelist removals.
+slash("black Ninjatwo ninja")
+GankListDB.blacklist["Ninjatwo"] = nil; GankListDB.tomb["Ninjatwo"] = 1000
+rx("B\tNinjatwo\tstale\tAlice\t900", "Alice")
+assert(not GankListDB.blacklist["Ninjatwo"], "stale blacklist re-push must not resurrect")
+
+-- 20. `added` round-trips, and the earliest one wins when both sides know them.
+rx("G\tCampertwo\t1\tZ\tAlice\t4000\t\t3000", "Alice")
+assert(GankListDB.gankers["Campertwo"].added == 3000, "added should come off the wire")
+rx("G\tCampertwo\t1\tZ\tAlice\t4000\t\t2000", "Alice")
+assert(GankListDB.gankers["Campertwo"].added == 2000, "earlier added should win")
+
+-- 21. Manual sync is two-way: we push, and ask the friend to push back.
+clear(); slash("sync")
+assert(sentTo("G","Alice"), "sync should push our list")
+assert(sentTo("HI","Alice"), "sync should also ask the friend for theirs")
+
+io.write("ALL TESTS PASSED (friend requests + blacklist + whitelist + kill handling + notes + tombstones + two-way sync)\n")

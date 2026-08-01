@@ -17,7 +17,21 @@ local function ensureDB()
 	GankListDB.outReq = GankListDB.outReq or {}      -- friend requests we sent, awaiting their accept
 	GankListDB.blacklist = GankListDB.blacklist or {} -- [name] = { note, by, t } same-faction jerks
 	GankListDB.whitelist = GankListDB.whitelist or {} -- [name] = { note, by, t } same-faction friendlies
+	GankListDB.tomb = GankListDB.tomb or {}          -- [name] = t, removals that must not come back on the next sync
 	return GankListDB
+end
+
+-- A deletion has to outlive a re-sync. Without this, removing someone only lasts
+-- until your friend's copy is pushed back at you and quietly resurrects them -
+-- which reads as "our lists are out of sync". A tombstone wins over any older
+-- incoming entry, and is dropped again the moment you re-add the name yourself.
+local TOMB_TTL = 30 * 86400
+local function tombstone(name)
+	if name then ensureDB().tomb[name] = time() end
+end
+local function buried(name, t) -- incoming entry older than our removal? drop it
+	local d = ensureDB().tomb[name]
+	return d ~= nil and d >= (tonumber(t) or 0)
 end
 
 -- Battlegrounds and arenas are one long gank; alerts and kill counts there are pure
@@ -42,6 +56,7 @@ local function record(name, zone, by)
 	local db = ensureDB()
 	local g = db.gankers[name]
 	if not g then
+		db.tomb[name] = nil -- re-adding overrides an earlier removal
 		g = { count = 0, by = by, added = time() }
 		db.gankers[name] = g
 	end
@@ -51,7 +66,8 @@ local function record(name, zone, by)
 	return g
 end
 
--- Format a stored timestamp in the viewer's local time (epoch number, or legacy string).
+-- The one timestamp format, used by every row in every list: viewer-local
+-- "2026-08-02 00:34". Legacy string stamps (pre-epoch storage) pass through.
 local function fmtTime(t)
 	return type(t) == "number" and date("%Y-%m-%d %H:%M", t) or (t or "?")
 end
@@ -75,7 +91,8 @@ end
 local function send(name, only)
 	local g = ensureDB().gankers[name]
 	if not g then return end
-	local payload = table.concat({ "G", name, g.count, g.zone or "", g.by or me, g.last or time(), g.note or "" }, "\t")
+	-- trailing `added` is newer than the original format; older clients just ignore it
+	local payload = table.concat({ "G", name, g.count, g.zone or "", g.by or me, g.last or time(), g.note or "", g.added or g.last or time() }, "\t")
 	if only then
 		tx(payload, only)
 	else
@@ -143,8 +160,19 @@ local function greetFriends()
 	end
 end
 
+-- A manual sync has to go both ways, or clicking it can only ever teach the
+-- friend what you know - never the reverse. The "HI" makes them push back.
+local function syncNow()
+	local db = ensureDB()
+	if #db.partners == 0 then print("|cffff4040GankList:|r no friends yet - /gank friend <name>") return end
+	sendAll()
+	for _, p in ipairs(db.partners) do tx("HI", p) end
+	print("|cffff4040GankList:|r synced with " .. table.concat(db.partners, ", ") .. " (both ways)")
+end
+
 -- Broadcast a forgive (removal) request to partners.
 local function sendRemove(name)
+	tombstone(name)
 	local payload = "R\t" .. name
 	for _, partner in ipairs(ensureDB().partners) do tx(payload, partner) end
 end
@@ -154,6 +182,7 @@ local function addBlacklist(name, note)
 	name = cleanName(name)
 	if not name then return end
 	note = tostring(note or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", ""):sub(1, 120)
+	ensureDB().tomb[name] = nil -- re-adding overrides an earlier removal
 	ensureDB().blacklist[name] = { note = note, by = me, t = time() }
 	sendBlack(name)
 	if refreshUI then refreshUI() end
@@ -162,6 +191,7 @@ end
 
 local function removeBlacklist(name)
 	ensureDB().blacklist[name] = nil
+	tombstone(name)
 	local payload = "BR\t" .. name
 	for _, partner in ipairs(ensureDB().partners) do tx(payload, partner) end -- ask partners to drop it too
 	if refreshUI then refreshUI() end
@@ -172,6 +202,7 @@ local function addWhitelist(name, note)
 	name = cleanName(name)
 	if not name then return end
 	note = tostring(note or ""):gsub("|", ""):gsub("^%s+", ""):gsub("%s+$", ""):sub(1, 120)
+	ensureDB().tomb[name] = nil -- re-adding overrides an earlier removal
 	ensureDB().whitelist[name] = { note = note, by = me, t = time() }
 	sendWhite(name)
 	if refreshUI then refreshUI() end
@@ -180,6 +211,7 @@ end
 
 local function removeWhitelist(name)
 	ensureDB().whitelist[name] = nil
+	tombstone(name)
 	local payload = "WR\t" .. name
 	for _, partner in ipairs(ensureDB().partners) do tx(payload, partner) end -- ask partners to drop it too
 	if refreshUI then refreshUI() end
@@ -249,7 +281,7 @@ local function onFriendMsg(kind, sender)
 end
 
 local function onReceive(payload, sender)
-	local kind, name, count, zone, by, last, note = strsplit("\t", payload)
+	local kind, name, count, zone, by, last, note, added = strsplit("\t", payload)
 
 	if kind == "HI" then -- a friend just logged in: silently push our list back to them
 		if sender and (not helloReply[sender] or time() - helloReply[sender] > 30) then
@@ -271,6 +303,7 @@ local function onReceive(payload, sender)
 		bnote = (bnote or ""):gsub("|", ""):sub(1, 120) -- strip injection, cap length
 		bby = bby and bby:gsub("|", ""):sub(1, 40) or nil
 		bt = math.min(tonumber(bt) or time(), time() + 86400)
+		if buried(bname, bt) then return end -- we removed them more recently
 		local db = ensureDB()
 		local b = db.blacklist[bname]
 		if not b or bt > (b.t or 0) then db.blacklist[bname] = { note = bnote, by = bby, t = bt } end
@@ -279,8 +312,9 @@ local function onReceive(payload, sender)
 	elseif kind == "BR" then -- a friend removed someone from their blacklist
 		local _, bname = strsplit("\t", payload)
 		bname = cleanName(bname)
-		if bname and ensureDB().blacklist[bname] then
+		if bname then
 			ensureDB().blacklist[bname] = nil
+			tombstone(bname) -- so our own copy doesn't push them back next sync
 			if refreshUI then refreshUI() end
 		end
 		return
@@ -291,6 +325,7 @@ local function onReceive(payload, sender)
 		wnote = (wnote or ""):gsub("|", ""):sub(1, 120) -- strip injection, cap length
 		wby = wby and wby:gsub("|", ""):sub(1, 40) or nil
 		wt = math.min(tonumber(wt) or time(), time() + 86400)
+		if buried(wname, wt) then return end -- we removed them more recently
 		local db = ensureDB()
 		local w = db.whitelist[wname]
 		if not w or wt > (w.t or 0) then db.whitelist[wname] = { note = wnote, by = wby, t = wt } end
@@ -299,8 +334,9 @@ local function onReceive(payload, sender)
 	elseif kind == "WR" then -- a friend removed someone from their whitelist
 		local _, wname = strsplit("\t", payload)
 		wname = cleanName(wname)
-		if wname and ensureDB().whitelist[wname] then
+		if wname then
 			ensureDB().whitelist[wname] = nil
+			tombstone(wname) -- so our own copy doesn't push them back next sync
 			if refreshUI then refreshUI() end
 		end
 		return
@@ -311,9 +347,10 @@ local function onReceive(payload, sender)
 
 	if kind == "R" then -- partner forgave someone
 		local db = ensureDB()
-		if not db.gankers[name] then return end -- not on our list, nothing to do
+		if not db.gankers[name] then tombstone(name) return end -- not on our list: just remember the removal
 		if db.autoAccept then
 			db.gankers[name] = nil
+			tombstone(name)
 			if refreshUI then refreshUI() end
 			print("|cffff4040GankList:|r " .. (sender or "a friend") .. " forgave " .. name .. " (auto-accepted)")
 		else
@@ -328,15 +365,18 @@ local function onReceive(payload, sender)
 	by = by and by:gsub("|", ""):sub(1, 40) or nil
 	last = math.min(tonumber(last) or time(), time() + 86400) -- epoch; reject far-future stamps
 	note = note and note:gsub("|", ""):sub(1, 120) or nil -- strip injection, cap length
+	added = math.min(tonumber(added) or last, time() + 86400) -- absent from pre-1.9 clients
+	if buried(name, last) then return end -- we forgave them more recently than this
 	local db = ensureDB()
 	local g = db.gankers[name]
 	if not g then
-		db.gankers[name] = { count = count, last = last, added = last, zone = zone, by = by, note = note }
+		db.gankers[name] = { count = count, last = last, added = added, zone = zone, by = by, note = note }
 	else
 		g.count = math.max(g.count, count) -- avoid double-counting on re-sync
 		g.zone = g.zone or zone
 		if note and note ~= "" then g.note = note end -- adopt a partner's note
 		if type(g.last) ~= "number" or last > g.last then g.last = last end
+		if type(g.added) ~= "number" or added < g.added then g.added = added end -- keep the earliest sighting
 	end
 	if refreshUI then refreshUI() end
 end
@@ -346,16 +386,6 @@ local function findGanker(db, name)
 	if db.gankers[name] then return db.gankers[name] end
 	local base = name:match("^[^-]+")
 	for k, v in pairs(db.gankers) do if k:match("^[^-]+") == base then return v end end
-end
-
--- Relative "time ago" for the last-seen stamp.
-local function fmtAgo(t)
-	if type(t) ~= "number" then return "?" end
-	local s = time() - t
-	if s < 60 then return "just now"
-	elseif s < 3600 then return math.floor(s / 60) .. "m ago"
-	elseif s < 86400 then return math.floor(s / 3600) .. "h ago"
-	else return math.floor(s / 86400) .. "d ago" end
 end
 
 -- Big center-screen alert (raid-warning style), with a small-text fallback.
@@ -376,8 +406,7 @@ local function alertIfGanker(unit)
 	if not name then return end
 	local g = findGanker(ensureDB(), name)
 	if not g then return end
-	g.seenZone = GetRealZoneText() -- last-seen tracker (every sighting, not throttled)
-	g.seenAt = time()
+	g.seenAt = time() -- last-seen tracker (every sighting, not throttled)
 	if refreshUI then refreshUI() end
 	local now = GetTime()
 	if alertSeen[name] and now - alertSeen[name] < 60 then return end
@@ -469,7 +498,8 @@ f:SetScript("OnEvent", function(_, event, ...)
 		end
 
 	elseif event == "PLAYER_LOGIN" then
-		ensureDB()
+		local db = ensureDB()
+		for n, t in pairs(db.tomb) do if time() - t > TOMB_TTL then db.tomb[n] = nil end end
 		playerGUID = UnitGUID("player")
 		C_ChatInfo.RegisterAddonMessagePrefix(PREFIX)
 		C_Timer.After(8, greetFriends) -- greet friends + push our list once chat is connected
@@ -484,6 +514,7 @@ StaticPopupDialogs["GANKLIST_FORGIVE"] = {
 	button1 = YES, button2 = NO, timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
 	OnAccept = function(self, data)
 		ensureDB().gankers[data.name] = nil
+		tombstone(data.name)
 		if refreshUI then refreshUI() end
 		print("|cffff4040GankList:|r forgave " .. data.name)
 	end,
@@ -614,12 +645,9 @@ function refreshUI()
 		if e.kind == "ganker" then
 			local r = e.r
 			row.name:SetText("|cffff6060" .. r.name .. "|r")
-			local base
-			if r.g.seenAt then -- once spotted, the row becomes a tracker
-				base = "|cff80c0fflast seen " .. (r.g.seenZone or "?") .. "  ·  " .. fmtAgo(r.g.seenAt) .. "|r"
-			else
-				base = fmtTime(r.g.added or r.g.last) -- raw value: fmtTime also renders legacy strings
-			end
+			-- raw stamps, not r.t: fmtTime also renders legacy string stamps
+			local base = fmtTime(r.g.added or r.g.last)
+			if r.g.seenAt then base = base .. "  |cff80c0ff· seen " .. fmtTime(r.g.seenAt) .. "|r" end
 			if r.g.note and r.g.note ~= "" then base = base .. "  |cffcccccc" .. r.g.note .. "|r" end
 			row.info:SetText(base)
 			row.fullNote, row.ttName = r.g.note, r.name
@@ -809,7 +837,7 @@ local function buildUI()
 	sync:SetSize(150, 22)
 	sync:SetPoint("BOTTOMRIGHT", -28, 8)
 	sync:SetText("Sync Partners")
-	sync:SetScript("OnClick", function() sendAll(); print("|cffff4040GankList:|r pushed list to friends") end)
+	sync:SetScript("OnClick", syncNow)
 	frame.sync = sync
 
 	-- Friends tab: type a name + Add to send a friend request (shown only on that tab).
@@ -957,6 +985,13 @@ SlashCmdList.GANK = function(msg)
 		print("  addon prefix ready ..... " .. ok(registered) .. (registered and "" or " (re-registered now)"))
 		print("  friends configured .... " .. ok(#db.partners > 0) .. "  (" .. (#db.partners > 0 and table.concat(db.partners, ", ") or "none") .. ")")
 		print("  combat-log tracking .... " .. ok(f:IsEventRegistered("COMBAT_LOG_EVENT_UNFILTERED")))
+		-- Sync only moves while the friend is actually online: whispers to an offline
+		-- partner are dropped by the server, which is what "out of sync" usually is.
+		for _, p in ipairs(db.partners) do
+			local on = isOnline(p)
+			print("  " .. p .. " online ......... " .. (on == nil and "|cffffd100unknown (not on your friends list)|r" or ok(on)))
+		end
+		print("  queued messages ........ " .. #outq)
 
 	elseif cmd == "autoaccept" then
 		if arg == "on" then db.autoAccept = true elseif arg == "off" then db.autoAccept = false
@@ -970,8 +1005,7 @@ SlashCmdList.GANK = function(msg)
 		print("|cffff8040GankList:|r pinged " .. table.concat(db.partners, ", ") .. " - waiting for reply...")
 
 	elseif cmd == "sync" then
-		sendAll()
-		print("|cffff4040GankList:|r pushed list to friends")
+		syncNow()
 
 	elseif cmd == "lfgdebug" then -- dump LFG browse rows so we can see what text/leader each exposes
 		print("|cffff8040GankList:|r LFG update hooked: " .. tostring(GankListLFGHooked))
