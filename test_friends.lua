@@ -194,4 +194,26 @@ clear(); slash("sync")
 assert(sentTo("G","Alice"), "sync should push our list")
 assert(sentTo("HI","Alice"), "sync should also ask the friend for theirs")
 
-io.write("ALL TESTS PASSED (friend requests + blacklist + whitelist + kill handling + notes + tombstones + two-way sync)\n")
+-- ---- note editor ---------------------------------------------------------
+-- 22. Classic gives the popup a globally-named edit box and no .editBox field.
+-- Reaching for the field threw (silently) and left the box blank + Save dead.
+local eb = { text = "" }
+function eb:SetText(t) self.text = t end
+function eb:GetText() return self.text end
+function eb:SetFocus() end
+function eb:HighlightText() end
+function eb:SetCursorPosition() end
+_G.StaticPopup1EditBox = eb
+local dlg = { GetName = function() return "StaticPopup1" end } -- no .editBox, like Classic
+local editor = StaticPopupDialogs["GANKLIST_NOTE"]
+
+GankListDB.blacklist["Ninja"] = { note = "stole my tag", by = "me", t = 1000 }
+editor.OnShow(dlg, { name = "Ninja", note = "stole my tag" })
+assert(eb.text == "stole my tag", "editor must open on the existing note, not empty")
+
+eb.text = "stole my tag twice"
+editor.OnAccept(dlg, { name = "Ninja", note = "stole my tag",
+  add = function(n, t) GankListDB.blacklist[n].note = t end })
+assert(GankListDB.blacklist["Ninja"].note == "stole my tag twice", "Save must store the edited note")
+
+io.write("ALL TESTS PASSED (friend requests + blacklist + whitelist + kill handling + notes + tombstones + two-way sync + note editor)\n")

@@ -527,14 +527,30 @@ StaticPopupDialogs["GANKLIST_FRIENDREQ"] = {
 	OnAccept = function(self, data) acceptFriend(data.name) end,
 }
 
+-- Classic's StaticPopup frames don't carry a .editBox field - the edit box is a
+-- globally named child. Reaching for self.editBox threw on every open, silently
+-- (script errors are off by default), which is why the box came up empty and
+-- Save appeared to do nothing.
+local function popupEdit(d)
+	if not d then return nil end
+	local name = d.GetName and d:GetName()
+	return d.editBox or (name and _G[name .. "EditBox"]) or nil
+end
+
 -- Note editor, shared by blacklist + whitelist. Caller passes the full prompt as
 -- the text arg and an add(name, note) function + current note in data.
 StaticPopupDialogs["GANKLIST_NOTE"] = {
 	text = "%s",
 	button1 = SAVE or "Save", button2 = CANCEL, hasEditBox = true, maxLetters = 120,
 	timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
-	OnShow = function(self, data) self.editBox:SetText((data and data.note) or "") end,
-	OnAccept = function(self, data) data.add(data.name, self.editBox:GetText()) end,
+	OnShow = function(self, data)
+		local e = popupEdit(self)
+		if e then e:SetText((data and data.note) or "") end
+	end,
+	OnAccept = function(self, data)
+		local e = popupEdit(self)
+		if e and data then data.add(data.name, e:GetText()) end
+	end,
 	EditBoxOnEnterPressed = function(self)
 		local parent = self:GetParent()
 		parent.data.add(parent.data.name, self:GetText())
@@ -549,11 +565,13 @@ StaticPopupDialogs["GANKLIST_NOTE"] = {
 -- keystroke would blow the old note away. Fill it in and drop the selection.
 local function showNote(prompt, name, note, add)
 	local d = StaticPopup_Show("GANKLIST_NOTE", prompt, nil, { name = name, note = note, add = add })
-	if not d or not d.editBox then return end
+	local e = popupEdit(d)
+	if not e then return end
 	note = note or ""
-	d.editBox:SetText(note)
-	d.editBox:HighlightText(0, 0) -- nothing selected...
-	d.editBox:SetCursorPosition(#note) -- ...and the cursor waiting at the end
+	e:SetText(note)
+	e:SetFocus()
+	e:HighlightText(0, 0) -- nothing selected...
+	e:SetCursorPosition(#note) -- ...and the cursor waiting at the end
 end
 
 function refreshUI()
