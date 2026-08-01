@@ -38,24 +38,17 @@ local function cleanName(s)
 	return s
 end
 
-local function record(name, zone, by, level)
+local function record(name, zone, by)
 	local db = ensureDB()
 	local g = db.gankers[name]
 	if not g then
-		g = { count = 0, by = by }
+		g = { count = 0, by = by, added = time() }
 		db.gankers[name] = g
 	end
 	g.count = g.count + 1
 	g.last = time() -- epoch; formatted to each viewer's local time at display
 	g.zone = zone or g.zone
-	if level ~= nil then g.level = level end
 	return g
-end
-
--- Format a known level for display ("Lv60", "??" for skull, "" if unknown).
-local function fmtLvl(lvl)
-	if lvl == -1 then return "??" elseif type(lvl) == "number" and lvl > 0 then return "Lv" .. lvl end
-	return ""
 end
 
 -- Format a stored timestamp in the viewer's local time (epoch number, or legacy string).
@@ -338,7 +331,7 @@ local function onReceive(payload, sender)
 	local db = ensureDB()
 	local g = db.gankers[name]
 	if not g then
-		db.gankers[name] = { count = count, last = last, zone = zone, by = by, note = note }
+		db.gankers[name] = { count = count, last = last, added = last, zone = zone, by = by, note = note }
 	else
 		g.count = math.max(g.count, count) -- avoid double-counting on re-sync
 		g.zone = g.zone or zone
@@ -346,27 +339,6 @@ local function onReceive(payload, sender)
 		if type(g.last) ~= "number" or last > g.last then g.last = last end
 	end
 	if refreshUI then refreshUI() end
-end
-
--- Cache the level of any hostile player we see, so we can judge a kill as a gank
--- (UnitLevel isn't in the combat log, so we grab it from units we can inspect).
-local levelSeen = {} -- name -> level (-1 = skull/"??", far above you)
-local function noteUnit(unit)
-	if UnitExists(unit) and UnitIsPlayer(unit) and UnitCanAttack("player", unit) then
-		local n = UnitName(unit)
-		if n then levelSeen[n] = UnitLevel(unit) end
-	end
-end
-
--- At death, grab levels of everyone currently nameplated/targeted - catches the
--- ganker still standing on your corpse even if you never saw them before.
-local function captureNearbyLevels()
-	if C_NamePlate and C_NamePlate.GetNamePlates then
-		for _, p in ipairs(C_NamePlate.GetNamePlates()) do
-			if p.namePlateUnitToken then noteUnit(p.namePlateUnitToken) end
-		end
-	end
-	noteUnit("target"); noteUnit("mouseover")
 end
 
 -- Find a Wanted entry by name, matching the base name too (stored key may have -Realm).
@@ -469,19 +441,18 @@ f:SetScript("OnEvent", function(_, event, ...)
 
 	elseif event == "PLAYER_DEAD" then
 		if lastHit and (GetTime() - lastHit.t) <= DEATH_WINDOW then
-			captureNearbyLevels() -- read the killer's level off their corpse-camping nameplate
 			handleKill(lastHit.name)
 			lastHit = nil
 		end
 
 	elseif event == "NAME_PLATE_UNIT_ADDED" then
-		noteUnit(...); alertIfGanker(...) -- unitToken of the new nameplate
+		alertIfGanker(...) -- unitToken of the new nameplate
 
 	elseif event == "UPDATE_MOUSEOVER_UNIT" then
-		noteUnit("mouseover"); alertIfGanker("mouseover")
+		alertIfGanker("mouseover")
 
 	elseif event == "PLAYER_TARGET_CHANGED" then
-		noteUnit("target"); alertIfGanker("target")
+		alertIfGanker("target")
 		if UI and UI.updateAddBtn then UI.updateAddBtn() end
 
 	elseif event == "CHAT_MSG_ADDON" then
@@ -552,9 +523,19 @@ function refreshUI()
 	for _, p in ipairs(db.outReq) do frs[#frs + 1] = { name = p, pending = true } end
 	for name, b in pairs(db.blacklist) do bl[#bl + 1] = { name = name, b = b } end
 	for name, w in pairs(db.whitelist) do wl[#wl + 1] = { name = name, b = w } end
-	table.sort(gks, function(a, b) return a.g.count > b.g.count end)
-	table.sort(bl, function(a, b) return a.name < b.name end)
-	table.sort(wl, function(a, b) return a.name < b.name end)
+	-- Newest addition on top, oldest at the bottom. Pre-`added` entries fall back to
+	-- their last-gank stamp; ties break on name so the order stays stable.
+	local function byNewest(a, b)
+		local ta, tb = a.t or 0, b.t or 0
+		if ta == tb then return a.name < b.name end
+		return ta > tb
+	end
+	for _, r in ipairs(gks) do r.t = tonumber(r.g.added) or tonumber(r.g.last) or 0 end
+	for _, r in ipairs(bl) do r.t = tonumber(r.b.t) or 0 end
+	for _, r in ipairs(wl) do r.t = tonumber(r.b.t) or 0 end
+	table.sort(gks, byNewest)
+	table.sort(bl, byNewest)
+	table.sort(wl, byNewest)
 
 	-- Reflect tab counts + which one is selected.
 	local tab = UI.tab or "wanted"
@@ -632,13 +613,12 @@ function refreshUI()
 
 		if e.kind == "ganker" then
 			local r = e.r
-			local lvl = fmtLvl(r.g.level or levelSeen[r.name])
-			row.name:SetText("|cffff6060" .. r.name .. "|r" .. (lvl ~= "" and "  |cff9090ff" .. lvl .. "|r" or ""))
+			row.name:SetText("|cffff6060" .. r.name .. "|r")
 			local base
 			if r.g.seenAt then -- once spotted, the row becomes a tracker
 				base = "|cff80c0fflast seen " .. (r.g.seenZone or "?") .. "  ·  " .. fmtAgo(r.g.seenAt) .. "|r"
 			else
-				base = (r.g.zone or "?") .. "  ·  " .. fmtTime(r.g.last)
+				base = fmtTime(r.g.added or r.g.last) -- raw value: fmtTime also renders legacy strings
 			end
 			if r.g.note and r.g.note ~= "" then base = base .. "  |cffcccccc" .. r.g.note .. "|r" end
 			row.info:SetText(base)
@@ -659,7 +639,7 @@ function refreshUI()
 		elseif e.kind == "white" then -- whitelisted same-faction friendly
 			local r = e.r
 			row.name:SetText("|cff80ff80" .. r.name .. "|r")
-			row.info:SetText(r.b.note ~= "" and "|cffcccccc" .. r.b.note .. "|r" or "|cff808080(no note - click Note to add)|r")
+			row.info:SetText(fmtTime(r.t) .. (r.b.note ~= "" and "  |cffcccccc" .. r.b.note .. "|r" or "  |cff808080(no note - click Note to add)|r"))
 			row.fullNote, row.ttName = r.b.note, r.name
 			row.count:SetText("")
 			row.del:Show(); row.promote:Show()
@@ -688,7 +668,7 @@ function refreshUI()
 		else -- blacklisted same-faction player
 			local r = e.r
 			row.name:SetText("|cffffd000" .. r.name .. "|r")
-			row.info:SetText(r.b.note ~= "" and "|cffcccccc" .. r.b.note .. "|r" or "|cff808080(no note - click Note to add)|r")
+			row.info:SetText(fmtTime(r.t) .. (r.b.note ~= "" and "  |cffcccccc" .. r.b.note .. "|r" or "  |cff808080(no note - click Note to add)|r"))
 			row.fullNote, row.ttName = r.b.note, r.name
 			row.count:SetText("")
 			row.del:Show(); row.promote:Show()
@@ -742,9 +722,9 @@ local function buildUI()
 		elseif frame.TitleText then frame.TitleText:SetText(text) end
 	end
 	frame.setTitle("Wanted")
-	-- Top-left "captured enemy" icon (rogue Sap = a bound/shackled humanoid).
+	-- Top-left "wanted dead" icon (the raid-target skull, same mark as the LFG warning).
 	-- Use the template's portrait when present, else add an explicit icon.
-	local ENEMY_ICON = "Interface\\Icons\\Ability_Sap"
+	local ENEMY_ICON = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_8"
 	local title = frame.TitleText or (frame.TitleContainer and frame.TitleContainer.TitleText)
 	local portrait = frame.PortraitContainer and frame.PortraitContainer.portrait or frame.portrait
 	if portrait then
@@ -814,7 +794,7 @@ local function buildUI()
 	addTgt:SetScript("OnClick", function()
 		local name = UnitExists("target") and UnitIsPlayer("target") and cleanName(UnitName("target"))
 		if not name then return end
-		record(name, GetRealZoneText(), me, levelSeen[name])
+		record(name, GetRealZoneText(), me)
 		send(name)
 		refreshUI()
 		print("|cffff4040GankList:|r added " .. name)

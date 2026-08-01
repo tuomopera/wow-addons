@@ -45,10 +45,12 @@ real gankers yourself with `/gank add`.
 | `/gank check` | reload-safe diagnostic |
 | `/gank help` | show all commands |
 
-**Suspects** are everyone who has killed you (with a kill count and their level
-when known), so you can spot the repeat offenders and `/gank add` them to Wanted
-(or hit the **→ Wanted** button on the row). Suspects self-clean after a week, or
-dismiss one with its X.
+**Suspects** are everyone who has killed you (with a kill count), so you can spot
+the repeat offenders and `/gank add` them to Wanted (or hit the **→ Wanted**
+button on the row). Suspects self-clean after a week, or dismiss one with its X.
+
+Wanted, Blacklist and Whitelist are all ordered newest addition first, and each
+row shows just the name, when you added them, and the note why.
 
 Once someone's on **Wanted**:
 
