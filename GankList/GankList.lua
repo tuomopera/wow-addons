@@ -543,6 +543,19 @@ StaticPopupDialogs["GANKLIST_NOTE"] = {
 	EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
 }
 
+-- Open the note editor on an existing note, ready to be edited rather than
+-- replaced. OnShow alone isn't enough: it doesn't fire when the popup is reused
+-- from a still-open one, and Blizzard select-alls the box on show, so the first
+-- keystroke would blow the old note away. Fill it in and drop the selection.
+local function showNote(prompt, name, note, add)
+	local d = StaticPopup_Show("GANKLIST_NOTE", prompt, nil, { name = name, note = note, add = add })
+	if not d or not d.editBox then return end
+	note = note or ""
+	d.editBox:SetText(note)
+	d.editBox:HighlightText(0, 0) -- nothing selected...
+	d.editBox:SetCursorPosition(#note) -- ...and the cursor waiting at the end
+end
+
 function refreshUI()
 	if not UI or not UI:IsShown() then return end
 	local db = ensureDB()
@@ -657,8 +670,7 @@ function refreshUI()
 				refreshUI()
 			end)
 			row.promote:SetScript("OnClick", function() -- add/edit a note
-				StaticPopup_Show("GANKLIST_NOTE", "Note for " .. r.name .. ":", nil,
-					{ name = r.name, note = r.g.note, add = setGankNote })
+				showNote("Note for " .. r.name .. ":", r.name, r.g.note, setGankNote)
 			end)
 		elseif e.kind == "white" then -- whitelisted same-faction friendly
 			local r = e.r
@@ -672,8 +684,7 @@ function refreshUI()
 				removeWhitelist(r.name)
 			end)
 			row.promote:SetScript("OnClick", function() -- edit the note
-				StaticPopup_Show("GANKLIST_NOTE", "Why is " .. r.name .. " whitelisted?", nil,
-					{ name = r.name, note = r.b.note, add = addWhitelist })
+				showNote("Why is " .. r.name .. " whitelisted?", r.name, r.b.note, addWhitelist)
 			end)
 		elseif e.kind == "friend" then
 			local r = e.r
@@ -701,8 +712,7 @@ function refreshUI()
 				removeBlacklist(r.name)
 			end)
 			row.promote:SetScript("OnClick", function() -- edit the reason
-				StaticPopup_Show("GANKLIST_NOTE", "Why is " .. r.name .. " on the blacklist?", nil,
-					{ name = r.name, note = r.b.note, add = addBlacklist })
+				showNote("Why is " .. r.name .. " on the blacklist?", r.name, r.b.note, addBlacklist)
 			end)
 		end
 
@@ -877,7 +887,8 @@ local function buildUI()
 		if n == "" and UnitExists("target") and UnitIsPlayer("target") then n = UnitName("target") end
 		n = n and cleanName(n)
 		if n then bbox:SetText(""); bbox:ClearFocus()
-			StaticPopup_Show("GANKLIST_NOTE", "Why is " .. n .. " on the blacklist?", nil, { name = n, add = addBlacklist }) end
+			local cur = ensureDB().blacklist[n] -- already listed? edit their note, don't blank it
+			showNote("Why is " .. n .. " on the blacklist?", n, cur and cur.note, addBlacklist) end
 	end
 	addB:SetScript("OnClick", submitBlack)
 	bbox:SetScript("OnEnterPressed", submitBlack)
@@ -899,7 +910,8 @@ local function buildUI()
 		if n == "" and UnitExists("target") and UnitIsPlayer("target") then n = UnitName("target") end
 		n = n and cleanName(n)
 		if n then wbox:SetText(""); wbox:ClearFocus()
-			StaticPopup_Show("GANKLIST_NOTE", "Why is " .. n .. " whitelisted?", nil, { name = n, add = addWhitelist }) end
+			local cur = ensureDB().whitelist[n] -- already listed? edit their note, don't blank it
+			showNote("Why is " .. n .. " whitelisted?", n, cur and cur.note, addWhitelist) end
 	end
 	addW:SetScript("OnClick", submitWhite)
 	wbox:SetScript("OnEnterPressed", submitWhite)
