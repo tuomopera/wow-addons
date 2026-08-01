@@ -508,6 +508,7 @@ end)
 
 -- ---- UI ------------------------------------------------------------------
 local rowPool = {}
+local TEXT_W = 290 -- text column: content width minus the buttons on the right
 
 StaticPopupDialogs["GANKLIST_FORGIVE"] = {
 	text = "%s wants to forgive %s.\nRemove them from your list too?",
@@ -601,56 +602,51 @@ function refreshUI()
 
 	for _, row in ipairs(rowPool) do row:Hide() end
 	local content = UI.content
+	local y = 2 -- running offset: rows are as tall as their own text needs
 	for i, e in ipairs(entries) do
 		local row = rowPool[i]
 		if not row then
 			row = CreateFrame("Button", nil, content)
-			row:SetHeight(34)
 			row:SetPoint("TOPRIGHT", -4, 0)
 			row.hl = row:CreateTexture(nil, "HIGHLIGHT")
 			row.hl:SetAllPoints()
 			row.hl:SetColorTexture(0.8, 0.2, 0.2, 0.18)
+			-- Three stacked lines: name, when/where, note. The note wraps and the row
+			-- grows to fit it, so nothing needs a hover to be readable.
 			row.name = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-			row.name:SetPoint("LEFT", 6, 7)
+			row.name:SetPoint("TOPLEFT", 6, -6)
+			row.meta = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+			row.meta:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -3)
+			row.meta:SetWidth(TEXT_W); row.meta:SetJustifyH("LEFT")
 			row.info = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-			row.info:SetPoint("LEFT", 6, -8)
-			row.info:SetWidth(280); row.info:SetJustifyH("LEFT"); row.info:SetWordWrap(false) -- truncate long notes
+			row.info:SetPoint("TOPLEFT", row.meta, "BOTTOMLEFT", 0, -3)
+			row.info:SetWidth(TEXT_W); row.info:SetJustifyH("LEFT"); row.info:SetWordWrap(true)
 			row.count = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
-			row.count:SetPoint("RIGHT", -34, 0)
+			row.count:SetPoint("TOPRIGHT", -34, -8)
 			row.del = CreateFrame("Button", nil, row, "UIPanelCloseButton")
 			row.del:SetSize(24, 24)
-			row.del:SetPoint("RIGHT", 2, 0)
+			row.del:SetPoint("TOPRIGHT", 2, -2)
 			row.promote = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
 			row.promote:SetSize(78, 20)
-			row.promote:SetPoint("RIGHT", row.del, "LEFT", -2, 0)
+			row.promote:SetPoint("TOPRIGHT", row.del, "TOPLEFT", -2, -2)
 			row.promote:SetText("\226\134\146 Wanted") -- "→ Wanted"
 			local sep = row:CreateTexture(nil, "ARTWORK")
 			sep:SetColorTexture(1, 1, 1, 0.10)
 			sep:SetHeight(1)
 			sep:SetPoint("BOTTOMLEFT", 2, -1)
 			sep:SetPoint("BOTTOMRIGHT", -2, -1)
-			row:SetScript("OnEnter", function(self) -- hover shows the full note (inline preview truncates)
-				if not self.fullNote or self.fullNote == "" then return end
-				GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-				GameTooltip:SetText(self.ttName or "", 1, 0.82, 0)
-				GameTooltip:AddLine(self.fullNote, 0.9, 0.9, 0.9, true) -- true = wrap
-				GameTooltip:Show()
-			end)
-			row:SetScript("OnLeave", function() GameTooltip:Hide() end)
 			rowPool[i] = row
 		end
-		row.fullNote = nil -- reset; note-bearing branches set it below
-		row:SetPoint("TOPLEFT", 4, -(i - 1) * 36 - 2)
+		row.meta:SetText(""); row.info:SetText("")
 
 		if e.kind == "ganker" then
 			local r = e.r
 			row.name:SetText("|cffff6060" .. r.name .. "|r")
 			-- raw stamps, not r.t: fmtTime also renders legacy string stamps
-			local base = fmtTime(r.g.added or r.g.last)
-			if r.g.seenAt then base = base .. "  |cff80c0ff· seen " .. fmtTime(r.g.seenAt) .. "|r" end
-			if r.g.note and r.g.note ~= "" then base = base .. "  |cffcccccc" .. r.g.note .. "|r" end
-			row.info:SetText(base)
-			row.fullNote, row.ttName = r.g.note, r.name
+			local meta = "added " .. fmtTime(r.g.added or r.g.last)
+			if r.g.seenAt then meta = meta .. "   |cff80c0ffseen " .. fmtTime(r.g.seenAt) .. "|r" end
+			row.meta:SetText(meta)
+			row.info:SetText(r.g.note and r.g.note ~= "" and "|cffcccccc" .. r.g.note .. "|r" or "")
 			local rev = r.g.revenge or 0
 			row.count:SetText("x" .. r.g.count .. (rev > 0 and "  |cff60ff60+" .. rev .. "|r" or ""))
 			row.del:Show(); row.promote:Show()
@@ -667,8 +663,8 @@ function refreshUI()
 		elseif e.kind == "white" then -- whitelisted same-faction friendly
 			local r = e.r
 			row.name:SetText("|cff80ff80" .. r.name .. "|r")
-			row.info:SetText(fmtTime(r.t) .. (r.b.note ~= "" and "  |cffcccccc" .. r.b.note .. "|r" or "  |cff808080(no note - click Note to add)|r"))
-			row.fullNote, row.ttName = r.b.note, r.name
+			row.meta:SetText("added " .. fmtTime(r.t))
+			row.info:SetText(r.b.note ~= "" and "|cffcccccc" .. r.b.note .. "|r" or "|cff808080(no note - click Note to add)|r")
 			row.count:SetText("")
 			row.del:Show(); row.promote:Show()
 			row.promote:SetText("Note")
@@ -682,7 +678,7 @@ function refreshUI()
 		elseif e.kind == "friend" then
 			local r = e.r
 			row.name:SetText((r.pending and "|cffffd100" or "|cff40ff40") .. r.name .. "|r")
-			row.info:SetText(r.pending and "|cffaaaaaarequest sent - waiting for accept|r" or "|cff80c0ffsynced|r")
+			row.meta:SetText(r.pending and "|cffaaaaaarequest sent - waiting for accept|r" or "|cff80c0ffsynced|r")
 			row.count:SetText("")
 			row.del:Show(); row.promote:SetShown(not r.pending)
 			row.promote:SetText("Ping")
@@ -696,8 +692,8 @@ function refreshUI()
 		else -- blacklisted same-faction player
 			local r = e.r
 			row.name:SetText("|cffffd000" .. r.name .. "|r")
-			row.info:SetText(fmtTime(r.t) .. (r.b.note ~= "" and "  |cffcccccc" .. r.b.note .. "|r" or "  |cff808080(no note - click Note to add)|r"))
-			row.fullNote, row.ttName = r.b.note, r.name
+			row.meta:SetText("added " .. fmtTime(r.t))
+			row.info:SetText(r.b.note ~= "" and "|cffcccccc" .. r.b.note .. "|r" or "|cff808080(no note - click Note to add)|r")
 			row.count:SetText("")
 			row.del:Show(); row.promote:Show()
 			row.promote:SetText("Note")
@@ -709,9 +705,16 @@ function refreshUI()
 					{ name = r.name, note = r.b.note, add = addBlacklist })
 			end)
 		end
+
+		-- Height last: the note only knows how many lines it wrapped to once it has text.
+		local h = 12 + row.name:GetStringHeight() + 3 + row.meta:GetStringHeight()
+		if row.info:GetText() ~= "" then h = h + 3 + row.info:GetStringHeight() end
+		row:SetHeight(math.max(h, 40)) -- 40 = the buttons on the right still need to fit
+		row:SetPoint("TOPLEFT", 4, -y)
+		y = y + row:GetHeight() + 2
 		row:Show()
 	end
-	content:SetHeight(math.max(#entries * 36 + 4, 1))
+	content:SetHeight(math.max(y + 4, 1))
 	UI.empty:SetText(tab == "wanted" and "No wanted enemies yet." or tab == "blacklist" and "No blacklisted players. Add one below." or tab == "friends" and "No sync friends yet. Add one below." or "No whitelisted players. Add one below.")
 	UI.empty:SetShown(#entries == 0)
 end
